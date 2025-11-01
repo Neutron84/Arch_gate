@@ -3,114 +3,1261 @@
 # Detect color support
 if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
     ncolors=$(tput colors 2>/dev/null || echo 0)
-    if [ -n "$ncolors" ] && [ $ncolors -ge 8 ]; then
-        # Terminal supports colors
-        R="\033[0;31m"     # Red
-        G="\033[0;32m"     # Green 
-        Y="\033[0;33m"     # Yellow
-        B="\033[0;34m"     # Blue
-        C="\033[0;36m"     # Cyan
-        BOLD="\033[1m"     # Bold
-        NC="\033[0m"       # Reset
+    if [ -n "$ncolors" ] && [ "$ncolors" -ge 8 ]; then
+        # Terminal supports colors - define all colors
+        # Basic colors (normal intensity)
+        R="\033[0m\033[31m"          # RST + red (#AA0000)
+        G="\033[0m\033[32m"          # RST + green (#00AA00)
+        B="\033[0m\033[34m"          # RST + blue (#0000AA)
+        Y="\033[0m\033[33m"          # RST + yellow (#AA5500)
+        P="\033[0m\033[35m"          # RST + pink/magenta (#AA00AA)
+        C="\033[0m\033[36m"          # RST + cyan (#00AAAA)
+        W="\033[0m\033[37m"          # RST + white (#AAAAAA)
+        BLACK="\033[0m\033[30m"      # RST + black (#000000)
+        
+        # Bold colors (light/bright intensity)
+        RB="\033[0m\033[1m\033[31m"  # RST + bold + red (#FF5555)
+        GB="\033[0m\033[1m\033[32m"  # RST + bold + green (#55FF55)
+        BB="\033[0m\033[1m\033[34m"  # RST + bold + blue (#5555FF)
+        YB="\033[0m\033[1m\033[33m"  # RST + bold + yellow (#FFFF55)
+        PB="\033[0m\033[1m\033[35m"  # RST + bold + pink/magenta (#FF55FF)
+        CB="\033[0m\033[1m\033[36m"  # RST + bold + cyan (#55FFFF)
+        WB="\033[0m\033[1m\033[37m"  # RST + bold + white (#FFFFFF)
+        BLACKB="\033[0m\033[1m\033[30m" # RST + bold + black (#555555)
+        
+        # Special modifiers
+        BOLD="\033[1m"               # bold only
+        NC="\033[0m"                 # reset all attributes
     else
-        # Terminal supports colors
-        R=""
-        G=""
-        Y=""
-        B=""
-        C=""
-        BOLD=""
-        NC=""
+        # Terminal doesn't support colors
+        R="" G="" B="" Y="" P="" C="" W="" BLACK=""
+        RB="" GB="" BB="" YB="" PB="" CB="" WB="" BLACKB=""
+        BOLD="" NC=""
     fi
 else
-    # Output to file or pipe
-    R=""
-    G=""
-    Y=""
-    B=""
-    C=""
-    BOLD=""
-    NC=""
+    # Output to file or pipe, or tput not available
+    R="" G="" B="" Y="" P="" C="" W="" BLACK=""
+    RB="" GB="" BB="" YB="" PB="" CB="" WB="" BLACKB=""
+    BOLD="" NC=""
 fi
+: ' 
+#  --- IGNORE ---
+Alternative color detection method (commented out)
+if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
+    ncolors=$(tput colors 2>/dev/null || echo 0)
+    if [ -n "$ncolors" ] && [ "$ncolors" -ge 8 ]; then
+        # Define common prefixes once
+        RST="$(printf '\033[0m')"
+        BOLD_PFX="$(printf '\033[1m')"
+        
+        # Basic colors (normal intensity)
+        R="${RST}$(printf '\033[31m')"          # RST + red
+        G="${RST}$(printf '\033[32m')"          # RST + green
+        B="${RST}$(printf '\033[34m')"          # RST + blue
+        Y="${RST}$(printf '\033[33m')"          # RST + yellow
+        P="${RST}$(printf '\033[35m')"          # RST + pink/magenta
+        C="${RST}$(printf '\033[36m')"          # RST + cyan
+        W="${RST}$(printf '\033[37m')"          # RST + white
+        BLACK="${RST}$(printf '\033[30m')"      # RST + black
+        
+        # Bold colors (light/bright intensity)
+        RB="${RST}${BOLD_PFX}$(printf '\033[31m')"  # RST + bold + red
+        GB="${RST}${BOLD_PFX}$(printf '\033[32m')"  # RST + bold + green
+        BB="${RST}${BOLD_PFX}$(printf '\033[34m')"  # RST + bold + blue
+        YB="${RST}${BOLD_PFX}$(printf '\033[33m')"  # RST + bold + yellow
+        PB="${RST}${BOLD_PFX}$(printf '\033[35m')"  # RST + bold + pink/magenta
+        CB="${RST}${BOLD_PFX}$(printf '\033[36m')"  # RST + bold + cyan
+        WB="${RST}${BOLD_PFX}$(printf '\033[37m')"  # RST + bold + white
+        BLACKB="${RST}${BOLD_PFX}$(printf '\033[30m')" # RST + bold + black
+        
+        # Special modifiers
+        BOLD="${BOLD_PFX}"
+        NC="${RST}"
+    else
+        # Terminal doesn't support colors - set all to empty
+        R="" G="" B="" Y="" P="" C="" W="" BLACK=""
+        RB="" GB="" BB="" YB="" PB="" CB="" WB="" BLACKB=""
+        BOLD="" NC=""
+    fi
+else
+    # Output to file or pipe - set all to empty
+    R="" G="" B="" Y="" P="" C="" W="" BLACK=""
+    RB="" GB="" BB="" YB="" PB="" CB="" WB="" BLACKB=""
+    BOLD="" NC=""
+fi
+'
 
-# Helper functions for displaying messages
+# =============================================================================
+# ADVANCED LOGGING SYSTEM (Integrated with color system)
+# =============================================================================
+
+# Logging configuration
+LOG_DIR="/var/log/arch_usb"
+LOG_FILE="${LOG_DIR}/arch_usb.log"
+LOG_MAX_BYTES=$((1024*1024*5))   # rotate at 5MB
+LOG_BACKUPS=3
+LOG_LEVEL="INFO"
+SYSLOG_ENABLED=0
+
+# Internal logging variables
+_LOG_FD=200
+_LOG_INITIALIZED=0
+
+# Numeric levels for comparison
+declare -A _LOG_LEVELS=(
+    [DEBUG]=10 [INFO]=20 [NOTICE]=25 [WARN]=30 [ERROR]=40 [CRITICAL]=50
+)
+
+##########################
+# Utility: level helpers #
+##########################
+_log_level_to_num() {
+    local lvl="${1^^}"
+    echo "${_LOG_LEVELS[$lvl]:-${_LOG_LEVELS[INFO]}}"
+}
+
+_should_log() {
+    local want="$1"
+    local wantn=$(_log_level_to_num "$want")
+    local currn=$(_log_level_to_num "$LOG_LEVEL")
+    (( wantn >= currn ))
+}
+
+#####################
+# Log rotation file #
+#####################
+_rotate_if_needed() {
+    if [[ -f "$LOG_FILE" ]]; then
+        local size
+        size=$(stat -c%s -- "$LOG_FILE" 2>/dev/null || echo 0)
+        if (( size >= LOG_MAX_BYTES )); then
+            for ((i=LOG_BACKUPS-1;i>=1;i--)); do
+                if [[ -f "${LOG_FILE}.${i}" ]]; then
+                    mv -f "${LOG_FILE}.${i}" "${LOG_FILE}.$((i+1))" 2>/dev/null || true
+                fi
+            done
+            if [[ -f "$LOG_FILE" ]]; then
+                mv -f "$LOG_FILE" "${LOG_FILE}.1" 2>/dev/null || true
+            fi
+        fi
+    fi
+}
+
+########################
+# Initialize / Cleanup #
+########################
+init_logger() {
+    if (( _LOG_INITIALIZED )); then return 0; fi
+    
+    mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || {
+        echo "Error: Cannot create log directory $(dirname "$LOG_FILE")" >&2
+        return 1
+    }
+
+    _rotate_if_needed
+
+    eval "exec ${_LOG_FD}>>\"$LOG_FILE\"" || {
+        echo "Warning: cannot open log file $LOG_FILE for append; logging to stdout only" >&2
+        _LOG_FD=1
+    }
+
+    _LOG_INITIALIZED=1
+    trap 'close_logger' EXIT INT TERM
+    
+    log_info "Logging system initialized (Level: $LOG_LEVEL, File: $LOG_FILE)"
+}
+
+close_logger() {
+    if (( _LOG_INITIALIZED )) && [[ $_LOG_FD -ne 1 ]]; then
+        eval "exec ${_LOG_FD}>&-"
+        _LOG_INITIALIZED=0
+    fi
+}
+
+########################
+# Core logging routine #
+########################
+_log_write() {
+    local level="$1"; shift
+    local msg="$*"
+    local ts
+    ts="$(date '+%Y-%m-%d %H:%M:%S')"
+    local pid="$$"
+    local caller_info=""
+    
+    if [[ ${FUNCNAME[2]+_} ]]; then
+        caller_info="${FUNCNAME[2]}:${BASH_LINENO[1]}"
+    fi
+
+    local line="[${ts}] ${level} [pid:${pid}] ${caller_info:+(${caller_info}) }${msg}"
+
+    if (( _LOG_INITIALIZED )) && [[ $_LOG_FD -ne 1 ]]; then
+        printf '%s
+' "$line" >&"${_LOG_FD}" 2>/dev/null || true
+    else
+        printf '%s
+' "$line"
+    fi
+
+    if (( SYSLOG_ENABLED )); then
+        local pri="user.info"
+        case "$level" in
+            DEBUG) pri="user.debug" ;;
+            INFO) pri="user.info" ;;
+            NOTICE) pri="user.notice" ;;
+            WARN) pri="user.warning" ;;
+            ERROR) pri="user.err" ;;
+            CRITICAL) pri="user.crit" ;;
+        esac
+        logger -p "$pri" -t "usb-arch" -- "$msg" 2>/dev/null || true
+    fi
+}
+
+########################
+# Public log functions #
+########################
+log_debug()    { _should_log DEBUG    && _log_write DEBUG    "$*" ; }
+log_info()     { _should_log INFO     && _log_write INFO     "$*" ; }
+log_notice()   { _should_log NOTICE   && _log_write NOTICE   "$*" ; }
+log_warn()     { _should_log WARN     && _log_write WARN     "$*" ; }
+log_error()    { _should_log ERROR    && _log_write ERROR    "$*" ; }
+log_critical() { _should_log CRITICAL && _log_write CRITICAL "$*" ; }
+
+########################
+# Console color mapping#
+########################
+_level_color_prefix() {
+    local level="$1"
+    case "${level^^}" in
+        DEBUG)  printf '%s' "${BLACKB}" ;;
+        INFO)   printf '%s' "${C}" ;;
+        NOTICE) printf '%s' "${G}" ;;
+        WARN)   printf '%s' "${Y}${BOLD}" ;;
+        ERROR)  printf '%s' "${R}${BOLD}" ;;
+        CRITICAL) printf '%s' "${RB}" ;;
+        *) printf '%s' "${NC}" ;;
+    esac
+}
+
+########################
+# print_* wrappers     #
+########################
+print_log_console() {
+    local level="$1"; shift
+    local msg="$*"
+    local color_prefix
+    color_prefix="$(_level_color_prefix "$level")"
+    local reset="${NC}"
+
+    if [ -t 1 ]; then
+        printf '%b%s%b
+' "${color_prefix}" "${msg}" "${reset}"
+    else
+        printf '%s
+' "$msg"
+    fi
+
+    case "${level^^}" in
+        DEBUG)    log_debug "$msg"    ;;
+        INFO)     log_info "$msg"     ;;
+        NOTICE)   log_notice "$msg"   ;;
+        WARN)     log_warn "$msg"     ;;
+        ERROR)    log_error "$msg"    ;;
+        CRITICAL) log_critical "$msg" ;;
+        *)        log_info "$msg"     ;;
+    esac
+}
+
+# Enhanced print functions with logging
+print_success() { print_log_console NOTICE "[✓] $*"; }
+print_msg()     { print_log_console INFO "[-] $*"; }
+print_warn()    { print_log_console WARN "[!] $*"; }
+print_failed()  { print_log_console ERROR "[✗] $*"; }
+print_debug()   { print_log_console DEBUG "[#] $*"; }
+print_critical(){ print_log_console CRITICAL "[‼] $*"; }
+
+########################
+# Control helpers      #
+########################
+set_log_level() {
+    local lvl="${1^^}"
+    if [[ -n "${_LOG_LEVELS[$lvl]:-}" ]]; then
+        LOG_LEVEL="$lvl"
+        print_msg "Log level set to: $lvl"
+    else
+        print_warn "Unknown log level: $1"
+    fi
+}
+
+set_log_file() {
+    local f="$1"
+    if [[ -z "$f" ]]; then
+        print_warn "Usage: set_log_file /path/to/file"
+        return 1
+    fi
+    LOG_FILE="$f"
+    if (( _LOG_INITIALIZED )); then
+        # Flush filesystem buffers to reduce chance of lost log lines
+        sync
+        sleep 0.1
+        close_logger
+        init_logger
+    fi
+}
+
+# Check locale charset for UTF-8 support (warn if not UTF-8)
+function check_utf8_locale() {
+    if command -v locale &>/dev/null; then
+        local ch
+        ch=$(locale charmap 2>/dev/null || echo "")
+        if [[ "$ch" != "UTF-8" ]]; then
+            print_warn "Non-UTF8 locale detected: '$ch' - Unicode glyphs may not render correctly"
+        else
+            log_debug "Locale charmap is UTF-8"
+        fi
+    else
+        log_debug "locale command not available to check charset"
+    fi
+}
+
+enable_syslog()  { SYSLOG_ENABLED=1; print_msg "Syslog enabled"; }
+disable_syslog() { SYSLOG_ENABLED=0; print_msg "Syslog disabled"; }
+
+# =============================================================================
+# ORIGINAL SIMPLE PRINT FUNCTIONS (Backup - comment if using advanced system)
+# =============================================================================
+: '
+# Helper functions for displaying messages (Simple version)
 function print_msg() {
     local msg="$1"
-    echo -e "${R}[${C}-${R}]${B} $msg ${NC}"
+    echo -e "${RB}[${C}-${RB}]${B} $msg ${NC}"
 }
 
 function print_success() {
     local msg="$1"
-    echo -e "${R}[${G}✓${R}]${G} $msg ${NC}"
+    echo -e "${RB}[${GB}✓${RB}]${GB} $msg ${NC}"
 }
 
 function print_failed() {
     local msg="$1"
-    echo -e "${R}[${R}☓${R}]${R} $msg ${NC}"
+    echo -e "${RB}[${RB}☓${RB}]${RB} $msg ${NC}"
 }
 
 function print_warn() {
     local msg="$1"
-    echo -e "${R}[${Y}!${R}]${Y} $msg ${NC}"
+    echo -e "${RB}[${Y}!${RB}]${Y} $msg ${NC}"
+}
+'
+
+# =============================================================================
+# INITIALIZE LOGGING SYSTEM
+# =============================================================================
+init_logger
+check_utf8_locale
+
+function banner() {
+    # clear
+    echo -e "${C}######################################################################${NC}"
+    echo -e "${C}#                      Arch Linux USB Installer                      #${NC}"
+    echo -e "${C}######################################################################${NC}"
+    echo
 }
 
-# Function for safely deleting files
+function wait_for_keypress() {
+    read -n1 -s -r -p "${RB}[${C}-${RB}]${G} Press any key to continue, CTRL+c to cancel...${NC}"
+    echo
+}
+
+function check_and_create_directory() {
+    if [[ -n "$1" && ! -d "$1" ]]; then
+        mkdir -p "$1" 2>/dev/null || {
+            log_error "Failed to create directory: $1"
+            return 1
+        }
+        log_debug "Created directory: $1"
+    fi
+}
+
+# first check then delete
 function check_and_delete() {
     local files_folders
     for files_folders in "$@"; do
         if [[ -e "$files_folders" ]]; then
-            rm -rf "$files_folders" && print_success "Deleted: $files_folders" || print_failed "Error deleting: $files_folders"
+            rm -rf "$files_folders" >/dev/null 2>&1 || {
+                log_error "Failed to delete: $files_folders"
+                continue
+            }
+            log_debug "Deleted: $files_folders"
         fi
     done
 }
 
-# Function for creating backups
+# first check then backup
 function check_and_backup() {
+    log_debug "Starting backup for: $*"
+    # shellcheck disable=SC2206
+    local files_folders_list=($@)
     local files_folders
     local date_str
     date_str=$(date +"%d-%m-%Y")
-    
-    for files_folders in "$@"; do
+
+    for files_folders in "${files_folders_list[@]}"; do
         if [[ -e "$files_folders" ]]; then
             local backup="${files_folders}-${date_str}.bak"
-            if mv "$files_folders" "$backup"; then
-                print_success "Backup created: $backup"
+
+            if [[ -e "$backup" ]]; then
+                print_msg "Backup $backup already exists"
             else
-                print_failed "Error creating backup: $files_folders"
+                print_msg "Backing up $files_folders"
+                mv "$files_folders" "$backup"
+                log_debug "$files_folders $backup"
             fi
+        else
+            print_msg "Path $files_folders does not exist"
         fi
     done
 }
 
-# Function for user confirmation
+# find a backup file which end with a number pattern and restore it
+function check_and_restore() {
+    log_debug "Starting restore for: $*"
+    # shellcheck disable=SC2206
+    local files_folders_list=($@)
+    local files_folders
+
+    for files_folders in "${files_folders_list[@]}"; do
+        local latest_backup
+        latest_backup=$(find "$(dirname "$files_folders")" -maxdepth 1 -name "$(basename "$files_folders")-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9].bak" 2>/dev/null | sort | tail -n 1)
+
+        if [[ -z "$latest_backup" ]]; then
+            print_msg "No backup found for $files_folders"
+            continue
+        fi
+
+        if [[ -e "$files_folders" ]]; then
+            print_msg "File $files_folders already exists"
+        else
+            print_msg "Restoring $files_folders"
+            mv "$latest_backup" "$files_folders"
+            log_debug "$latest_backup $files_folders"
+        fi
+    done
+}
+
+function download_file() {
+    local dest
+    local url
+    local max_retries=5
+    local attempt=1
+    local successful_attempt=0
+
+    if [[ -z "$2" ]]; then
+        url="$1"
+        dest="$(basename "$url")"
+    else
+        dest="$1"
+        url="$2"
+    fi
+
+    if [[ -z "$url" ]]; then
+        print_failed "No URL provided!"
+        return 1
+    fi
+
+    while [[ $attempt -le $max_retries ]]; do
+        print_msg "Downloading $dest..."
+        if [[ ! -s "$dest" ]]; then
+            check_and_delete "$dest"
+        fi
+
+        # Prefer the tool that can actually reach the URL. If both are present, test reachability.
+        if command -v wget &>/dev/null && command -v curl &>/dev/null; then
+            if wget --spider --timeout=10 "$url" >/dev/null 2>&1; then
+                wget --tries=5 --timeout=15 --retry-connrefused -O "$dest" "$url" 2>/dev/null
+            elif curl -Is --max-time 10 "$url" >/dev/null 2>&1; then
+                curl -# -L "$url" -o "$dest" 2>/dev/null
+            else
+                print_failed "Network unreachable for $url"
+            fi
+        elif command -v wget &>/dev/null; then
+            wget --tries=5 --timeout=15 --retry-connrefused -O "$dest" "$url" 2>/dev/null
+        elif command -v curl &>/dev/null; then
+            curl -# -L "$url" -o "$dest" 2>/dev/null
+        else
+            print_failed "No download tool available (wget or curl)"
+        fi
+
+        if [[ -f "$dest" && -s "$dest" ]]; then
+            successful_attempt=$attempt
+            break
+        else
+            print_failed "Download failed. Retrying... ($attempt/$max_retries)"
+        fi
+        ((attempt++))
+    done
+
+    if [[ -f "$dest" ]]; then
+        if [[ $successful_attempt -eq 1 ]]; then
+            print_success "File downloaded successfully."
+        else
+            print_success "File downloaded successfully on attempt $successful_attempt."
+        fi
+        return 0
+    fi
+
+    print_failed "Failed to download the file after $max_retries attempts. Exiting."
+    return 1
+}
+
+function extract_archive() {
+    local archive="$1"
+    if [[ ! -f "$archive" ]]; then
+        print_failed "$archive doesn't exist"
+        return 1
+    fi
+
+    case "$archive" in
+    *.tar.gz | *.tgz)
+        print_success "Extracting ${C}$archive"
+        tar xzvf "$archive" 2>/dev/null || {
+            print_failed "Failed to extract ${C}$archive"
+            return 1
+        }
+        ;;
+    *.tar.xz)
+        print_success "Extracting ${C}$archive"
+        tar xJvf "$archive" 2>/dev/null || {
+            print_failed "Failed to extract ${C}$archive"
+            return 1
+        }
+        ;;
+    *.tar.bz2 | *.tbz2)
+        print_success "Extracting ${C}$archive"
+        tar xjvf "$archive" 2>/dev/null || {
+            print_failed "Failed to extract ${C}$archive"
+            return 1
+        }
+        ;;
+    *.tar)
+        print_success "Extracting ${C}$archive"
+        tar xvf "$archive" 2>/dev/null || {
+            print_failed "Failed to extract ${C}$archive"
+            return 1
+        }
+        ;;
+    *.bz2)
+        print_success "Extracting ${C}$archive"
+        if ! command -v bunzip2 &>/dev/null; then
+            print_failed "bunzip2 not available to extract ${C}$archive"
+            return 1
+        fi
+        bunzip2 -v "$archive" 2>/dev/null || {
+            print_failed "Failed to extract ${C}$archive"
+            return 1
+        }
+        ;;
+    *.gz)
+        print_success "Extracting ${C}$archive${NC}"
+        if ! command -v gunzip &>/dev/null; then
+            print_failed "gunzip not available to extract ${C}$archive"
+            return 1
+        fi
+        gunzip -v "$archive" 2>/dev/null || {
+            print_failed "Failed to extract ${C}$archive"
+            return 1
+        }
+        ;;
+    *.7z)
+        print_success "Extracting ${C}$archive"
+        if ! command -v 7z &>/dev/null; then
+            print_failed "7z (p7zip) not available to extract ${C}$archive"
+            return 1
+        fi
+        7z x "$archive" -y 2>/dev/null || {
+            print_failed "Failed to extract ${C}$archive"
+            return 1
+        }
+        ;;
+    *.zip)
+        print_success "Extracting ${C}$archive"
+        if ! command -v unzip &>/dev/null; then
+            print_failed "unzip not available to extract ${C}$archive"
+            return 1
+        fi
+        unzip "${archive}" 2>/dev/null || {
+            print_failed "Failed to extract ${C}$archive"
+            return 1
+        }
+        ;;
+    *.rar)
+        print_success "Extracting ${C}$archive"
+        if ! command -v unrar &>/dev/null; then
+            print_failed "unrar not available to extract ${C}$archive"
+            return 1
+        fi
+        unrar x "$archive" 2>/dev/null || {
+            print_failed "Failed to extract ${C}$archive"
+            return 1
+        }
+        ;;
+    *)
+        print_failed "Unsupported archive format: ${C}$archive"
+        return 1
+        ;;
+    esac
+    print_success "Successfully extracted ${C}$archive"
+    log_debug "Extracted: $archive"
+}
+
+# download a archive file and extract it in a folder
+function download_and_extract() {
+    local url="$1"
+    local target_dir="$2"
+    local filename="${url##*/}"
+
+    if [[ -n "$target_dir" ]]; then
+        check_and_create_directory "$target_dir"
+        cd "$target_dir" || return 1
+    fi
+
+    if download_file "$filename" "$url"; then
+        if [[ -f "$filename" ]]; then
+            echo
+            extract_archive "$filename"
+            check_and_delete "$filename"
+        fi
+    else
+        print_failed "Failed to download ${C}${filename}"
+        print_msg "${C}Please check your internet connection"
+    fi
+    log_debug "Downloaded and extracted: $url to $target_dir"
+}
+
+# Improved confirmation: secure + strict validation + CONFIG support + proper return codes
 function confirmation_y_or_n() {
+    local prompt="$1"
+    local varname="${2:-}"
+    local response
+
+    # loop until valid
     while true; do
-        print_msg "$1 (y/n)"
-    read -r response
-    response="${response,,}"
-        
-        case $response in
-            y|yes) 
-                print_success "Continue with the answer: \"Yes\""
-                # Safely assign the response to the caller's variable name without using eval
-                if [ -n "${2:-}" ]; then
-                    # Use printf -v (bash builtin) to assign to variable by name
-                    printf -v "$2" '%s' "$response"
-                fi
-                return 0
-                ;;
-            n|no)
-                print_msg "Operation cancelled"
-                if [ -n "${2:-}" ]; then
-                    printf -v "$2" '%s' "$response"
-                fi
-                return 1
-                ;;
+        print_msg "${prompt} (y/n)"
+        # read one line, trim surrounding whitespace
+        if ! IFS= read -r response; then
+            # EOF or pipe closed
+            echo
+            print_failed "Input aborted (EOF)"
+            echo
+            return 1
+        fi
+        # lowercase
+        response="${response,,}"
+        # trim leading/trailing spaces (bash)
+        response="${response#"${response%%[![:space:]]*}"}"
+        response="${response%"${response##*[![:space:]]}"}"
+
+        # reject empty, spaces inside, or slashes
+        if [[ -z "$response" || "$response" =~ [[:space:]/] ]]; then
+            echo
+            print_failed "Invalid input: no spaces or slashes allowed. Enter only 'y' or 'n'."
+            echo
+            continue
+        fi
+
+        # normalize full words
+        case "$response" in
+            y|yes) response="y" ;;
+            n|no)  response="n" ;;
             *) 
-                print_failed "Invalid input. Please enter 'y' or 'n'"
+                echo
+                print_failed "Invalid input. Please enter 'y', 'yes', 'n', or 'no'."
+                echo
+                continue
                 ;;
         esac
+
+        # store in CONFIG if provided and exists
+        if [[ -n "$varname" ]]; then
+            # safe assign: printf -v
+            printf -v "$varname" '%s' "$response"
+            # also set CONFIG associative if defined
+            if declare -p CONFIG &>/dev/null && [[ "$(declare -p CONFIG)" == declare\ -A* ]]; then
+                CONFIG["$varname"]="$response"
+            fi
+        fi
+
+        # logging / feedback
+        if [[ "$response" == "y" ]]; then
+            echo
+            print_success "Continuing with answer: $response"
+            echo
+            log_debug "Confirmation: $prompt - response: $response"
+            return 0
+        else
+            echo
+            print_msg "${C}Skipping this step${NC}"
+            echo
+            log_debug "Confirmation: $prompt - response: $response"
+            return 1
+        fi
     done
+}
+
+# Check if running as root
+### ---------------------------------------------------------------------------
+# PACKAGE MANAGEMENT SYSTEM - Supports pacman, pacstrap, and AUR
+### ---------------------------------------------------------------------------
+
+# Global variables for package management
+PACKAGE_MANAGER="pacman"
+AUR_HELPER="yay"
+ENABLE_AUR=false
+
+# Function to detect and set AUR helper
+function detect_aur_helper() {
+    if command -v yay &>/dev/null; then
+        AUR_HELPER="yay"
+        ENABLE_AUR=true
+        log_debug "AUR helper detected: yay"
+    elif command -v paru &>/dev/null; then
+        AUR_HELPER="paru"
+        ENABLE_AUR=true
+        log_debug "AUR helper detected: paru"
+    else
+        ENABLE_AUR=false
+        log_debug "No AUR helper found"
+    fi
+}
+
+# Function to install AUR helper
+function install_aur_helper() {
+    local helper_choice="${1:-yay}"
+    
+    if [[ "$ENABLE_AUR" == "true" ]]; then
+        print_success "AUR helper already installed: $AUR_HELPER"
+        return 0
+    fi
+
+    print_msg "Installing AUR helper: $helper_choice"
+    
+    case "$helper_choice" in
+        "yay")
+            package_install_pacman "base-devel git" || return 1
+            cd /tmp || return 1
+            git clone https://aur.archlinux.org/yay.git || return 1
+            cd yay || return 1
+            makepkg -si --noconfirm || return 1
+            cd ..
+            rm -rf yay
+            AUR_HELPER="yay"
+            ;;
+        "paru")
+            package_install_pacman "base-devel git" || return 1
+            cd /tmp || return 1
+            git clone https://aur.archlinux.org/paru.git || return 1
+            cd paru || return 1
+            makepkg -si --noconfirm || return 1
+            cd ..
+            rm -rf paru
+            AUR_HELPER="paru"
+            ;;
+        *)
+            print_failed "Unknown AUR helper: $helper_choice"
+            return 1
+            ;;
+    esac
+
+    if command -v "$AUR_HELPER" &>/dev/null; then
+        ENABLE_AUR=true
+        print_success "AUR helper installed successfully: $AUR_HELPER"
+        return 0
+    else
+        print_failed "Failed to install AUR helper: $helper_choice"
+        return 1
+    fi
+}
+
+# Core package installation function with multiple backends
+function package_install_and_check() {
+    local packs_list="$*"
+    local install_success=true
+    
+    log_debug "Starting package installation for: $packs_list"
+    
+    # Split package list
+    IFS=' ' read -r -a packs_array <<< "$packs_list"
+    
+    for package_name in "${packs_array[@]}"; do
+        if [[ -z "$package_name" ]]; then
+            continue
+        fi
+        
+        # Check if package contains AUR prefix
+        if [[ "$package_name" == aur/* ]]; then
+            local aur_package="${package_name#aur/}"
+            if [[ "$ENABLE_AUR" == "true" ]]; then
+                package_install_aur "$aur_package" || install_success=false
+            else
+                print_warn "AUR not enabled, skipping: $aur_package"
+                install_success=false
+            fi
+        else
+            # Try pacman first, then pacstrap if available
+            if command -v pacman &>/dev/null; then
+                package_install_pacman "$package_name" || install_success=false
+            elif command -v pacstrap &>/dev/null; then
+                package_install_pacstrap "$package_name" || install_success=false
+            else
+                print_failed "No package manager available"
+                return 1
+            fi
+        fi
+    done
+    
+    if [[ "$install_success" == "true" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# pacman installation function
+function package_install_pacman() {
+    local package_name="$1"
+    local retry_count=0
+    local max_retries=5
+    local install_success=false
+    
+    # Handle wildcard patterns
+    if [[ "$package_name" == *"*"* ]]; then
+        log_debug "Processing wildcard pattern: $package_name"
+        local packages
+        packages=$(pacman -Ssq 2>/dev/null | grep -E "^${package_name//\*/.*}$")
+        
+        if [[ -z "$packages" ]]; then
+            print_warn "No packages found matching pattern: $package_name"
+            return 1
+        fi
+        
+        log_debug "Matched packages: $packages"
+        
+        for package in $packages; do
+            if ! package_install_pacman_single "$package"; then
+                return 1
+            fi
+        done
+        return 0
+    else
+        package_install_pacman_single "$package_name"
+    fi
+}
+
+function package_install_pacman_single() {
+    local package_name="$1"
+    local retry_count=0
+    local max_retries=5
+    local install_success=false
+    
+    # Check if package is already installed
+    if pacman -Qi "$package_name" &>/dev/null; then
+        print_success "Package already installed: ${C}$package_name"
+        return 0
+    fi
+    
+    while [[ "$retry_count" -lt "$max_retries" && "$install_success" == false ]]; do
+        retry_count=$((retry_count + 1))
+        
+        # Remove pacman lock if exists
+        check_and_delete "/var/lib/pacman/db.lck"
+        
+        print_msg "Installing package (pacman): ${C}$package_name"
+        
+        if pacman -S --noconfirm --needed "$package_name" 2>/dev/null; then
+            if pacman -Qi "$package_name" &>/dev/null; then
+                print_success "Successfully installed package: ${C}$package_name"
+                install_success=true
+            else
+                print_warn "Package installed but verification failed: ${C}$package_name"
+            fi
+        else
+            print_warn "Failed to install package: ${C}$package_name. Retrying... ($retry_count/$max_retries)"
+            
+            # Refresh package database on failure
+            pacman -Sy --noconfirm 2>/dev/null
+        fi
+    done
+    
+    if [[ "$install_success" == "true" ]]; then
+        return 0
+    else
+        print_failed "Failed to install package after $max_retries attempts: ${C}$package_name"
+        return 1
+    fi
+}
+
+# pacstrap installation function (for chroot environments)
+function package_install_pacstrap() {
+    local package_name="$1"
+    local chroot_dir="${2:-/mnt}"
+    local retry_count=0
+    local max_retries=5
+    local install_success=false
+    
+    print_msg "Installing package (pacstrap): ${C}$package_name"
+    
+    while [[ "$retry_count" -lt "$max_retries" && "$install_success" == false ]]; do
+        retry_count=$((retry_count + 1))
+        
+        if pacstrap -c -K "$chroot_dir" "$package_name" 2>/dev/null; then
+            # Verify installation in chroot
+            if arch-chroot "$chroot_dir" pacman -Qi "$package_name" &>/dev/null; then
+                print_success "Successfully installed package in chroot: ${C}$package_name"
+                install_success=true
+            else
+                print_warn "Package installed in chroot but verification failed: ${C}$package_name"
+            fi
+        else
+            print_warn "Failed to install package in chroot: ${C}$package_name. Retrying... ($retry_count/$max_retries)"
+            
+            # Update package database in chroot
+            arch-chroot "$chroot_dir" pacman -Sy --noconfirm 2>/dev/null
+        fi
+    done
+    
+    if [[ "$install_success" == "true" ]]; then
+        return 0
+    else
+        print_failed "Failed to install package in chroot after $max_retries attempts: ${C}$package_name"
+        return 1
+    fi
+}
+
+# AUR installation function
+function package_install_aur() {
+    local package_name="$1"
+    local retry_count=0
+    local max_retries=3
+    local install_success=false
+    
+    if [[ "$ENABLE_AUR" != "true" ]]; then
+        print_failed "AUR not enabled. Please install an AUR helper first."
+        return 1
+    fi
+    
+    print_msg "Installing AUR package (${AUR_HELPER}): ${C}$package_name"
+    
+    while [[ "$retry_count" -lt "$max_retries" && "$install_success" == false ]]; do
+        retry_count=$((retry_count + 1))
+        
+        case "$AUR_HELPER" in
+            "yay")
+                if yay -S --noconfirm --needed "$package_name" 2>/dev/null; then
+                    if yay -Qi "$package_name" &>/dev/null || pacman -Qi "$package_name" &>/dev/null; then
+                        print_success "Successfully installed AUR package: ${C}$package_name"
+                        install_success=true
+                    fi
+                fi
+                ;;
+            "paru")
+                if paru -S --noconfirm --needed "$package_name" 2>/dev/null; then
+                    if paru -Qi "$package_name" &>/dev/null || pacman -Qi "$package_name" &>/dev/null; then
+                        print_success "Successfully installed AUR package: ${C}$package_name"
+                        install_success=true
+                    fi
+                fi
+                ;;
+        esac
+        
+        if [[ "$install_success" != "true" ]]; then
+            print_warn "Failed to install AUR package: ${C}$package_name. Retrying... ($retry_count/$max_retries)"
+        fi
+    done
+    
+    if [[ "$install_success" == "true" ]]; then
+        return 0
+    else
+        print_failed "Failed to install AUR package after $max_retries attempts: ${C}$package_name"
+        return 1
+    fi
+}
+
+# Package removal function with multiple backends
+function package_check_and_remove() {
+    local packs_list="$*"
+    
+    log_debug "Starting package removal for: $packs_list"
+    
+    IFS=' ' read -r -a packs_array <<< "$packs_list"
+    
+    for package_name in "${packs_array[@]}"; do
+        if [[ -z "$package_name" ]]; then
+            continue
+        fi
+        
+        # Check AUR packages
+        if [[ "$package_name" == aur/* ]]; then
+            local aur_package="${package_name#aur/}"
+            package_remove_aur "$aur_package"
+        else
+            package_remove_pacman "$package_name"
+        fi
+    done
+}
+
+function package_remove_pacman() {
+    local package_name="$1"
+    local retry_count=0
+    local max_retries=3
+    local remove_success=false
+    
+    # Handle wildcard patterns
+    if [[ "$package_name" == *"*"* ]]; then
+        log_debug "Processing wildcard pattern for removal: $package_name"
+        local packages
+        packages=$(pacman -Qsq 2>/dev/null | grep -E "^${package_name//\*/.*}$")
+        
+        if [[ -z "$packages" ]]; then
+            print_success "No installed packages found matching pattern: ${C}$package_name"
+            return 0
+        fi
+        
+        log_debug "Matched packages for removal: $packages"
+        
+        for package in $packages; do
+            if ! package_remove_pacman_single "$package"; then
+                return 1
+            fi
+        done
+        return 0
+    else
+        package_remove_pacman_single "$package_name"
+    fi
+}
+
+function package_remove_pacman_single() {
+    local package_name="$1"
+    local retry_count=0
+    local max_retries=3
+    local remove_success=false
+    
+    if ! pacman -Qi "$package_name" &>/dev/null; then
+        print_success "Package not installed: ${C}$package_name"
+        return 0
+    fi
+    
+    while [[ "$retry_count" -lt "$max_retries" && "$remove_success" == false ]]; do
+        retry_count=$((retry_count + 1))
+        
+        check_and_delete "/var/lib/pacman/db.lck"
+        print_msg "Removing package: ${C}$package_name"
+        
+        if pacman -Rns --noconfirm "$package_name" 2>/dev/null; then
+            if ! pacman -Qi "$package_name" &>/dev/null; then
+                print_success "Successfully removed package: ${C}$package_name"
+                remove_success=true
+            fi
+        else
+            print_warn "Failed to remove package: ${C}$package_name. Retrying... ($retry_count/$max_retries)"
+        fi
+    done
+    
+    if [[ "$remove_success" == "true" ]]; then
+        return 0
+    else
+        print_failed "Failed to remove package after $max_retries attempts: ${C}$package_name"
+        return 1
+    fi
+}
+
+function package_remove_aur() {
+    local package_name="$1"
+    
+    if [[ "$ENABLE_AUR" != "true" ]]; then
+        print_failed "AUR not enabled"
+        return 1
+    fi
+    
+    print_msg "Removing AUR package: ${C}$package_name"
+    
+    case "$AUR_HELPER" in
+        "yay")
+            yay -Rns --noconfirm "$package_name" 2>/dev/null
+            ;;
+        "paru")
+            paru -Rns --noconfirm "$package_name" 2>/dev/null
+            ;;
+    esac
+    
+    if ! pacman -Qi "$package_name" &>/dev/null; then
+        print_success "Successfully removed AUR package: ${C}$package_name"
+        return 0
+    else
+        print_failed "Failed to remove AUR package: ${C}$package_name"
+        return 1
+    fi
+}
+
+# Function to update all packages (official + AUR)
+function package_update_all() {
+    print_msg "Updating system packages..."
+    
+    # Update official repositories
+    if ! pacman -Syu --noconfirm; then
+        print_failed "Failed to update official packages"
+        return 1
+    fi
+    
+    # Update AUR packages if enabled
+    if [[ "$ENABLE_AUR" == "true" ]]; then
+        print_msg "Updating AUR packages..."
+        case "$AUR_HELPER" in
+            "yay")
+                yay -Syu --noconfirm --devel
+                ;;
+            "paru")
+                paru -Syu --noconfirm
+                ;;
+        esac
+    fi
+    
+    print_success "System update completed"
+}
+
+# Function to clean package caches
+function package_clean_cache() {
+    print_msg "Cleaning package caches..."
+    
+    # Clean pacman cache
+    pacman -Sc --noconfirm
+    
+    # Clean AUR cache if enabled
+    if [[ "$ENABLE_AUR" == "true" ]]; then
+        case "$AUR_HELPER" in
+            "yay")
+                yay -Sc --noconfirm
+                ;;
+            "paru")
+                paru -Sc --noconfirm
+                ;;
+        esac
+    fi
+    
+    print_success "Package caches cleaned"
+}
+
+# Function to query package information
+function package_query_info() {
+    local package_name="$1"
+    
+    if [[ "$package_name" == aur/* ]]; then
+        local aur_package="${package_name#aur/}"
+        if [[ "$ENABLE_AUR" == "true" ]]; then
+            case "$AUR_HELPER" in
+                "yay")
+                    yay -Qi "$aur_package"
+                    ;;
+                "paru")
+                    paru -Qi "$aur_package"
+                    ;;
+            esac
+        else
+            print_failed "AUR not enabled"
+        fi
+    else
+        pacman -Qi "$package_name"
+    fi
+}
+
+# Function to search for packages
+function package_search() {
+    local search_term="$1"
+    
+    print_msg "Searching for packages: $search_term"
+    
+    # Search official repositories
+    echo -e "${C}Official repositories:${NC}"
+    pacman -Ss "$search_term" || echo "No results in official repositories"
+    
+    # Search AUR if enabled
+    if [[ "$ENABLE_AUR" == "true" ]]; then
+        echo -e "\n${C}AUR packages:${NC}"
+        case "$AUR_HELPER" in
+            "yay")
+                yay -Ss "$search_term" || echo "No results in AUR"
+                ;;
+            "paru")
+                paru -Ss "$search_term" || echo "No results in AUR"
+                ;;
+        esac
+    fi
+}
+
+# Initialize package management system
+function init_package_manager() {
+    detect_aur_helper
+    log_debug "Package manager initialized: $PACKAGE_MANAGER, AUR: $ENABLE_AUR ($AUR_HELPER)"
+}
+
+# Auto-initialize on script load
+init_package_manager
+
+# -----------------------------------------------------------------------------
+# Dependency check and auto-install
+# -----------------------------------------------------------------------------
+function check_dependencies() {
+    local deps=(
+        pacman git makepkg wget curl parted lsblk blkid mkfs.ext4 mkfs.fat
+        dkms modprobe systemctl udevadm tput
+    )
+
+    local missing=()
+    for cmd in "${deps[@]}"; do
+        if ! command -v "$cmd" &>/dev/null; then
+            print_warn "Dependency missing: $cmd"
+            missing+=("$cmd")
+        fi
+    done
+
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        log_debug "All dependencies present"
+        return 0
+    fi
+
+    # Try to auto-install missing deps if pacman is available
+    if command -v pacman &>/dev/null; then
+        print_msg "Attempting to install missing dependencies via pacman: ${missing[*]}"
+        for pkg in "${missing[@]}"; do
+            # Use wrapper where possible for retries
+            if ! package_install_and_check "$pkg"; then
+                print_warn "Auto-install failed for $pkg; attempting direct pacman"
+                if ! pacman -S --noconfirm --needed "$pkg" &>/dev/null; then
+                    print_failed "Failed to install dependency: $pkg"
+                else
+                    print_success "Installed dependency: $pkg"
+                fi
+            else
+                print_success "Installed dependency: $pkg"
+            fi
+        done
+    else
+        print_failed "pacman not available; cannot auto-install missing dependencies: ${missing[*]}"
+        return 1
+    fi
+
+    # Re-check after attempted installs
+    local still_missing=()
+    for cmd in "${deps[@]}"; do
+        if ! command -v "$cmd" &>/dev/null; then
+            still_missing+=("$cmd")
+        fi
+    done
+
+    if [[ ${#still_missing[@]} -ne 0 ]]; then
+        print_failed "Still missing required commands: ${still_missing[*]}"
+        return 1
+    fi
+
+    return 0
 }
 
 # Check if running as root
@@ -120,6 +1267,13 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # Start installation
+banner
+print_msg "Checking dependencies..."
+if ! check_dependencies; then
+    print_failed "Dependency check failed. Aborting."
+    exit 1
+fi
+
 print_msg "Starting the process of installing Arch Linux on USB..."
 
 # Display available disks
@@ -230,9 +1384,9 @@ print_msg "Refreshing package keys..."
 pacman-key --init
 pacman-key --populate archlinux
 
-# Update repository list and entire system
+# Update repository list and entire system (use wrapper)
 print_msg "Updating package repositories and system packages..."
-if ! pacman -Syu --noconfirm; then
+if ! package_update_all; then
     print_failed "Failed to update the live system"
     exit 1
 fi
@@ -240,17 +1394,17 @@ print_success "Live system successfully updated"
 
 # Install tools and DKMS module for bcachefs
 print_msg "Installing bcachefs-tools, dkms, and kernel headers..."
-pacman -S --noconfirm --needed bcachefs-tools dkms linux-headers || {
+if ! package_install_and_check "bcachefs-tools dkms linux-headers"; then
     print_failed "Failed to install required packages"
     exit 1
-}
+fi
 
 # Check if bcachefs module already exists
 if ! modprobe bcachefs &>/dev/null; then
     print_msg "bcachefs module not found. Building with DKMS..."
     
     # Install bcachefs module using dkms
-    if pacman -S --noconfirm bcachefs-dkms; then
+    if package_install_and_check "bcachefs-dkms"; then
         print_success "bcachefs-dkms package installed"
         
         # Run dkms manually to ensure module installation
@@ -273,7 +1427,7 @@ if ! modprobe bcachefs &>/dev/null; then
 else
     print_success "bcachefs module is already available in the kernel"
 fi
-# --- پایان بخش جدید ---
+
 
 # Format partitions
 print_msg "Formatting partitions..."
@@ -293,9 +1447,17 @@ bcachefs format --label ARCH_PERSIST \
 # Mount partitions
 print_msg "Mounting partitions..."
 mkdir -p /mnt/usb
-mount -L ARCH_ESP /mnt/usb
+# Use device nodes (safer than label lookup)
+mount ${USB_DRIVE}2 /mnt/usb || {
+    print_failed "Failed to mount ESP partition"
+    exit 1
+}
+
 mkdir -p /mnt/usb/persistent
-mount -L ARCH_PERSIST /mnt/usb/persistent
+mount ${USB_DRIVE}3 /mnt/usb/persistent || {
+    print_failed "Failed to mount main partition"
+    exit 1
+}
 
 print_msg "Mount status:"
 lsblk
@@ -369,8 +1531,11 @@ print_msg "Installing base Arch Linux system..."
 mkdir -p /mnt/usb/persistent/arch_root
 
 print_msg "Installing selected packages..."
-# Use -k to maintain same kernel version as Live environment
-pacstrap -c -k /mnt/usb/persistent/arch_root $PACKAGES
+# Use package_install_pacstrap wrapper (adds retries and verification)
+package_install_pacstrap "$PACKAGES" "/mnt/usb/persistent/arch_root" || {
+    print_failed "Failed to install selected packages via package_install_pacstrap"
+    exit 1
+}
 
 # Check installed kernel version
 INSTALLED_KERNEL_VERSION=$(chroot /mnt/usb/persistent/arch_root pacman -Q linux | awk '{print $2}' | sed 's/\.arch.*/.x86_64/')
@@ -384,7 +1549,9 @@ if [[ "$LIVE_KERNEL_VERSION" != "$INSTALLED_KERNEL_VERSION" ]]; then
     
     # Install matching Live environment version if needed
     if confirmation_y_or_n "Do you want to install the Live environment kernel version?" install_live_kernel; then
-        pacstrap -c /mnt/usb/persistent/arch_root linux-$(echo $LIVE_KERNEL_VERSION | cut -d'.' -f1-2)
+        package_install_pacstrap "linux-$(echo $LIVE_KERNEL_VERSION | cut -d'.' -f1-2)" "/mnt/usb/persistent/arch_root" || {
+            print_warn "Failed to install live kernel via package_install_pacstrap"
+        }
         print_success "Kernel version synchronized with Live environment"
     else
         print_warn "Continuing with different kernel versions. mkinitcpio might need manual adjustment."
@@ -915,15 +2082,31 @@ run_hook() {
         # Mount the root filesystem with the appropriate type
         case "${rootfs_type}" in
             "EROFS")
-                if ! modprobe erofs; then
-                    echo "Failed to load erofs module!"
-                    umount /os_root
-                    return 1
-                fi
-                if ! mount -t erofs -o ro /os_root/arch/root.squashfs /squashfs; then
-                    echo "Failed to mount root.squashfs as erofs!"
-                    umount /os_root
-                    return 1
+                # Probe kernel support for erofs before attempting to modprobe.
+                if ! modprobe -n -q erofs; then
+                    echo "EROFS filesystem module not supported by kernel. Falling back to squashfs."
+                    # Fall back to squashfs handling
+                    if ! modprobe squashfs; then
+                        echo "Failed to load squashfs module while falling back!"
+                        umount /os_root
+                        return 1
+                    fi
+                    if ! mount -t squashfs -o ro /os_root/arch/root.squashfs /squashfs; then
+                        echo "Failed to mount root.squashfs as squashfs while falling back!"
+                        umount /os_root
+                        return 1
+                    fi
+                else
+                    if ! modprobe erofs; then
+                        echo "Failed to load erofs module!"
+                        umount /os_root
+                        return 1
+                    fi
+                    if ! mount -t erofs -o ro /os_root/arch/root.squashfs /squashfs; then
+                        echo "Failed to mount root.squashfs as erofs!"
+                        umount /os_root
+                        return 1
+                    fi
                 fi
                 ;;
             *)
@@ -987,8 +2170,8 @@ HOOK
 cat > /etc/initcpio/install/overlay <<INST
 build() { add_module overlay; add_runscript; }
 INST
- sed -i 's/^MODULES=(.*)/MODULES=(overlay squashfs erofs bcachefs \1)/' /etc/mkinitcpio.conf
-sed -i 's/^HOOKS=(.filesystems.)/HOOKS=\1 overlay/' /etc/mkinitcpio.conf
+sed -Ei 's/^MODULES=(.*)/MODULES=(overlay squashfs erofs bcachefs \1)/' /etc/mkinitcpio.conf
+sed -Ei 's/^HOOKS=(.filesystems.)/HOOKS=\1 overlay/' /etc/mkinitcpio.conf
 
 # Check and enable LZ4HC support in erofs
 if ! grep -q "CONFIG_EROFS_FS_LZ4HC=y" /boot/config-$(uname -r); then
@@ -1000,8 +2183,8 @@ fi
 mkinitcpio -P
 EOF
 
-chmod +x /tmp/arch_root/setup.sh
-arch-chroot /tmp/arch_root /setup.sh
+chmod +x /mnt/usb/persistent/arch_root/setup.sh
+arch-chroot /mnt/usb/persistent/arch_root /setup.sh
 
 # =======================================================
 #  (Safety and Recovery)
@@ -1009,7 +2192,7 @@ arch-chroot /tmp/arch_root /setup.sh
 print_msg "Injecting Advanced Safety scripts (003)..."
 
 # Execute commands in the chroot environment
-arch-chroot /tmp/arch_root /bin/bash <<'CHROOT_003'
+arch-chroot /mnt/usb/persistent/arch_root /bin/bash <<'CHROOT_003'
 
 # 1. Implement mandatory fsync system for critical writes
 cat > /usr/local/bin/enforced-sync <<'EOF'
@@ -1217,7 +2400,10 @@ fi
 systemctl enable io-health-monitor.service
 
 # 3. Implementing Fallback (Busybox) Mode for Troubleshooting
-pacman -S --noconfirm busybox
+if ! package_install_and_check "busybox"; then
+    print_warn "Failed to install busybox via package_install_and_check; attempting direct pacman as fallback"
+    pacman -S --noconfirm busybox || print_failed "Failed to install busybox"
+fi
 
 # Creating custom initramfs fallback
 cat > /etc/mkinitcpio.conf.fallback <<'EOF'
@@ -1433,7 +2619,7 @@ print_success "Advanced Safety scripts (003) injected successfully"
 # =======================================================
 print_msg "Injecting Atomic Update System (004)..."
 
-arch-chroot /tmp/arch_root /bin/bash <<'CHROOT_004'
+arch-chroot /mnt/usb/persistent/arch_root /bin/bash <<'CHROOT_004'
 
 # Create directory structure for system updates
 mkdir -p /var/lib/system-update/{staging,backup,transactions}
@@ -1620,6 +2806,14 @@ update_system() {
     done
 
     # کپی کرنل و initramfs جدید به ESP
+# Check for the existence of essential files before copying; if not, rollback is performed
+    if [[ ! -f "${STAGING_ROOT}/boot/vmlinuz-linux" ]]; then
+        error_exit "Kernel file not found in staging area: ${STAGING_ROOT}/boot/vmlinuz-linux"
+    fi
+    if [[ ! -f "${STAGING_ROOT}/boot/initramfs-linux.img" ]]; then
+        error_exit "Initramfs file not found in staging area: ${STAGING_ROOT}/boot/initramfs-linux.img"
+    fi
+
     cp "${STAGING_ROOT}/boot/vmlinuz-linux" "${ESP_MOUNT}/arch/"
     cp "${STAGING_ROOT}/boot/initramfs-linux.img" "${ESP_MOUNT}/arch/"
     
@@ -1927,7 +3121,7 @@ print_success "Atomic Update System (004) injected successfully"
 # =======================================================
 print_msg "Injecting Advanced Optimizations (005)..."
 
-arch-chroot /tmp/arch_root /bin/bash <<'CHROOT_005'
+arch-chroot /mnt/usb/persistent/arch_root /bin/bash <<'CHROOT_005'
 
 # 1. پیاده‌سازی ZSWAP
 cat > /usr/local/bin/configure-zswap <<'EOF'
@@ -2476,13 +3670,13 @@ print_success "Advanced Optimizations (005) injected successfully"
 
 mkdir -p /mnt/usb/persistent/arch
 if modprobe erofs &>/dev/null; then
-    mkfs.erofs -zlz4hc,12 --uid-offset=0 --gid-offset=0 --mount-point=/ --exclude-path="/tmp/*" /mnt/usb/persistent/arch/root.squashfs /tmp/arch_root
+    mkfs.erofs -zlz4hc,12 --uid-offset=0 --gid-offset=0 --mount-point=/ --exclude-path="/tmp/*" /mnt/usb/persistent/arch/root.squashfs /mnt/usb/persistent/arch_root
 else
-    mksquashfs /tmp/arch_root /mnt/usb/persistent/arch/root.squashfs -comp zstd -Xcompression-level 15 -noappend -processors "$(nproc)"
+    mksquashfs /mnt/usb/persistent/arch_root /mnt/usb/persistent/arch/root.squashfs -comp zstd -Xcompression-level 15 -noappend -processors "$(nproc)"
 fi
 
-cp /tmp/arch_root/boot/vmlinuz-linux /mnt/usb/persistent/arch/
-cp /tmp/arch_root/boot/initramfs-linux.img /mnt/usb/persistent/arch/
+cp /mnt/usb/persistent/arch_root/boot/vmlinuz-linux /mnt/usb/persistent/arch/
+cp /mnt/usb/persistent/arch_root/boot/initramfs-linux.img /mnt/usb/persistent/arch/
 
 grub-install --target=x86_64-efi --efi-directory=/mnt/usb --bootloader-id=ARCH_USB --removable
 grub-install --target=i386-pc ${USB_DRIVE}
