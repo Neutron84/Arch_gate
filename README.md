@@ -4,7 +4,7 @@ This repository contains a feature-rich Arch Linux USB installer/runtime image b
 
 What this repo provides
 - `usb_arch.sh` — the main installer script (download and run on a live Arch environment).
-- `MANUAL.md` — user manual and reference for runtime services (now available in English).
+- `MANUAL.md` — user manual and reference for runtime services.
 - Atomic update tools, snapshotting, and safety helpers installed on the target system.
 
 Quick start
@@ -52,8 +52,4 @@ Security & safety checklist
 Contributing
 - If you'd like to contribute, open issues or PRs against this repo. Please run `shellcheck` on any bash patches you submit.
 
-License
-- See the `LICENSE` file in this repository.
 
-Questions or improvements
-- If you want a short Quick Start section that demonstrates an end-to-end example (partition, format, install), tell me and I will add it to this README.
