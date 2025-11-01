@@ -6,24 +6,24 @@ if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
     if [ -n "$ncolors" ] && [ "$ncolors" -ge 8 ]; then
         # Terminal supports colors - define all colors
         # Basic colors (normal intensity)
-        R="\033[0m\033[31m"          # RST + red (#AA0000)
-        G="\033[0m\033[32m"          # RST + green (#00AA00)
-        B="\033[0m\033[34m"          # RST + blue (#0000AA)
-        Y="\033[0m\033[33m"          # RST + yellow (#AA5500)
-        P="\033[0m\033[35m"          # RST + pink/magenta (#AA00AA)
-        C="\033[0m\033[36m"          # RST + cyan (#00AAAA)
-        W="\033[0m\033[37m"          # RST + white (#AAAAAA)
-        BLACK="\033[0m\033[30m"      # RST + black (#000000)
+        R="\033[31m"          # RST + red (#AA0000)
+        G="\033[32m"          # RST + green (#00AA00)
+        B="\033[34m"          # RST + blue (#0000AA)
+        Y="\033[33m"          # RST + yellow (#AA5500)
+        P="\033[35m"          # RST + pink/magenta (#AA00AA)
+        C="\033[36m"          # RST + cyan (#00AAAA)
+        W="\033[37m"          # RST + white (#AAAAAA)
+        BLACK="\033[30m"      # RST + black (#000000)
         
         # Bold colors (light/bright intensity)
-        RB="\033[0m\033[1m\033[31m"  # RST + bold + red (#FF5555)
-        GB="\033[0m\033[1m\033[32m"  # RST + bold + green (#55FF55)
-        BB="\033[0m\033[1m\033[34m"  # RST + bold + blue (#5555FF)
-        YB="\033[0m\033[1m\033[33m"  # RST + bold + yellow (#FFFF55)
-        PB="\033[0m\033[1m\033[35m"  # RST + bold + pink/magenta (#FF55FF)
-        CB="\033[0m\033[1m\033[36m"  # RST + bold + cyan (#55FFFF)
-        WB="\033[0m\033[1m\033[37m"  # RST + bold + white (#FFFFFF)
-        BLACKB="\033[0m\033[1m\033[30m" # RST + bold + black (#555555)
+        RB="\033[1m\033[31m"  # RST + bold + red (#FF5555)
+        GB="\033[1m\033[32m"  # RST + bold + green (#55FF55)
+        BB="\033[1m\033[34m"  # RST + bold + blue (#5555FF)
+        YB="\033[1m\033[33m"  # RST + bold + yellow (#FFFF55)
+        PB="\033[1m\033[35m"  # RST + bold + pink/magenta (#FF55FF)
+        CB="\033[1m\033[36m"  # RST + bold + cyan (#55FFFF)
+        WB="\033[1m\033[37m"  # RST + bold + white (#FFFFFF)
+        BLACKB="\033[1m\033[30m" # RST + bold + black (#555555)
         
         # Special modifiers
         BOLD="\033[1m"               # bold only
@@ -123,8 +123,10 @@ get_part_path() {
     local part_path=""
 
     # Force kernel to re-read partition table
+    sync
+    sleep 2
     partprobe "$disk" 2>/dev/null
-    sync; sleep 1
+    sync; sleep 2
 
     # Try lsblk first (most reliable)
     part_path=$(lsblk -no KNAME "$disk" | grep -E "${disk##*/}${part_num}$|${disk##*/}p${part_num}$" | head -n 1)
@@ -165,7 +167,7 @@ safe_handle_pacman_lock() {
     while [[ -e "$lock_file" && $waited -lt $timeout ]]; do
         # If any pacman process is running, wait
         if command -v pgrep &>/dev/null && (pgrep -x pacman >/dev/null 2>&1 || pgrep -f pacman >/dev/null 2>&1); then
-            sleep 1
+            sleep 0.5
             waited=$((waited + 1))
             continue
         fi
@@ -254,6 +256,62 @@ close_logger() {
         eval "exec ${_LOG_FD}>&-"
         _LOG_INITIALIZED=0
     fi
+}
+
+# -----------------------------------------------------------------------------
+# Pre-installation checks and cleanup handlers
+# -----------------------------------------------------------------------------
+
+# Cleanup handler invoked on script exit or interrupt to unmount targets and
+# remove temporary files created during the installation process.
+cleanup_on_exit() {
+    print_msg "Cleaning up..."
+    # Attempt to unmount any mounts under /mnt/usb
+    umount -R /mnt/usb 2>/dev/null || true
+    # Remove temporary install artifacts
+    rm -f /tmp/arch-install-* 2>/dev/null || true
+}
+
+# Ensure cleanup_on_exit runs on EXIT and on common termination signals
+trap 'cleanup_on_exit' EXIT INT TERM
+
+
+# Check that there's sufficient disk space on the target mount before
+# starting destructive operations. This is a conservative check; some
+# operations may require less, but 10GB is a reasonable minimum for a
+# full Arch system with extra packages.
+function check_disk_space() {
+    local required_gb=10
+    # Use the mountpoint we operate on; default to /mnt/usb if not set
+    local target_mount="${TARGET_MOUNT:-/mnt/usb}"
+    # Obtain available space in GB (rounded down)
+    local available_gb
+    available_gb=$(df -BG "$target_mount" | awk 'NR==2 {print $4}' | sed 's/G//')
+
+    if [[ -z "$available_gb" ]]; then
+        print_warn "Unable to determine available disk space on $target_mount"
+        return 0
+    fi
+
+    if [ "$available_gb" -lt "$required_gb" ]; then
+        print_failed "Insufficient disk space. Required: ${required_gb}G, Available: ${available_gb}G"
+        exit 1
+    fi
+}
+
+
+# Create a small snapshot of the system state before performing destructive
+# actions so that some basic diagnostics can be recovered if something goes
+# wrong during installation.
+function create_pre_install_snapshot() {
+    local snapshot_dir="/tmp/pre-install-snapshot"
+    mkdir -p "$snapshot_dir"
+
+    # Save partition layout and disk information
+    lsblk -f > "$snapshot_dir/partitions.txt" 2>/dev/null || true
+    fdisk -l > "$snapshot_dir/fdisk.txt" 2>/dev/null || true
+
+    print_success "Pre-install snapshot created at: $snapshot_dir"
 }
 
 ########################
@@ -436,6 +494,19 @@ function print_warn() {
 # =============================================================================
 init_logger
 check_utf8_locale
+
+# -----------------------------------------------------------------------------
+# Cache cleaning configuration
+# AUTO_CLEAN_CACHE: if false, no automatic cache cleaning will be performed
+# CACHE_CLEAN_STRATEGY: one of immediate|batch|smart
+# CACHE_BATCH_THRESHOLD: how many installs before batch cleaning
+# -----------------------------------------------------------------------------
+AUTO_CLEAN_CACHE="${AUTO_CLEAN_CACHE:-true}"
+CACHE_CLEAN_STRATEGY="${CACHE_CLEAN_STRATEGY:-immediate}"   # immediate|batch|smart
+CACHE_BATCH_THRESHOLD="${CACHE_BATCH_THRESHOLD:-5}"
+# Counter for batch cleaning
+CACHE_BATCH_COUNTER=0
+
 
 function banner() {
     # clear
@@ -964,10 +1035,13 @@ function package_install_pacman_single() {
         
         print_msg "Installing package (pacman): ${C}$package_name"
         
-        if pacman -S --noconfirm --needed "$package_name" 2>/dev/null; then
+                if pacman -S --noconfirm --needed "$package_name" 2>/dev/null; then
             if pacman -Qi "$package_name" &>/dev/null; then
-                print_success "Successfully installed package: ${C}$package_name"
-                install_success=true
+                    print_success "Successfully installed package: ${C}$package_name"
+                    install_success=true
+
+                    # Post-install cache handling according to strategy
+                    handle_post_install_cache_clean "$package_name"
             else
                 print_warn "Package installed but verification failed: ${C}$package_name"
             fi
@@ -1047,6 +1121,8 @@ function package_install_aur() {
                     if yay -Qi "$package_name" &>/dev/null || pacman -Qi "$package_name" &>/dev/null; then
                         print_success "Successfully installed AUR package: ${C}$package_name"
                         install_success=true
+                        # Post-install cache handling according to strategy
+                        handle_post_install_cache_clean "$package_name"
                     fi
                 fi
                 ;;
@@ -1055,6 +1131,8 @@ function package_install_aur() {
                     if paru -Qi "$package_name" &>/dev/null || pacman -Qi "$package_name" &>/dev/null; then
                         print_success "Successfully installed AUR package: ${C}$package_name"
                         install_success=true
+                        # Post-install cache handling according to strategy
+                        handle_post_install_cache_clean "$package_name"
                     fi
                 fi
                 ;;
@@ -1071,6 +1149,97 @@ function package_install_aur() {
         print_failed "Failed to install AUR package after $max_retries attempts: ${C}$package_name"
         return 1
     fi
+}
+
+# Clean package caches for pacman and AUR helpers
+function clean_package_cache() {
+    local silent="${1:-false}"
+    if [[ "$silent" != "true" ]]; then
+        print_msg "Cleaning package caches..."
+    fi
+
+    # pacman: remove uninstalled package files and clear old cache
+    pacman -Sc --noconfirm >/dev/null 2>&1 || true
+
+    # AUR helpers caches
+    if [[ "${ENABLE_AUR:-false}" == "true" ]]; then
+        case "${AUR_HELPER:-}" in
+            yay) yay -Sc --noconfirm >/dev/null 2>&1 || true ;; 
+            paru) paru -Sc --noconfirm >/dev/null 2>&1 || true ;; 
+        esac
+    fi
+
+    # Remove any leftover package files
+    find /var/cache/pacman/pkg/ -maxdepth 1 -type f -delete 2>/dev/null || true
+    rm -rf ~/.cache/yay/* ~/.cache/paru/* 2>/dev/null || true
+
+    if [[ "$silent" != "true" ]]; then
+        print_success "Package caches cleaned"
+    fi
+}
+
+# Smart cache cleaning logic for large packages or batching
+function smart_cache_clean() {
+    local package_name="$1"
+    # Try to detect installed size; fall back to cleaning always if unknown
+    local pkg_info
+    pkg_info=$(pacman -Si "$package_name" 2>/dev/null || true)
+    if [[ -z "$pkg_info" ]]; then
+        # Unknown package info; do not bail - just return
+        return 0
+    fi
+
+    local size_line
+    size_line=$(printf "%s" "$pkg_info" | awk -F": " '/Installed Size/ {print $2}')
+    if [[ -z "$size_line" ]]; then
+        return 0
+    fi
+
+    # Parse size (e.g., 12.34 MiB or 1.2 GiB)
+    if [[ "$size_line" =~ ([0-9.]+)\s*([MG]i?B) ]]; then
+        local size_val=${BASH_REMATCH[1]}
+        local size_unit=${BASH_REMATCH[2]}
+
+        # Convert to MB for comparison
+        local size_mb=0
+        if [[ "$size_unit" == "GiB" || "$size_unit" == "GB" ]]; then
+            size_mb=$(printf "%d" "$(echo "$size_val * 1024" | bc)")
+        else
+            size_mb=$(printf "%d" "$(echo "$size_val" | bc)")
+        fi
+
+        if [[ $size_mb -ge 50 ]]; then
+            clean_package_cache true
+        fi
+    fi
+}
+
+# Handle post-install cache cleaning according to configured strategy
+function handle_post_install_cache_clean() {
+    local pkg="$1"
+    # Respect global toggle
+    if [[ "${AUTO_CLEAN_CACHE,,}" == "false" ]]; then
+        return 0
+    fi
+
+    case "${CACHE_CLEAN_STRATEGY}" in
+        immediate)
+            clean_package_cache true
+            ;;
+        smart)
+            smart_cache_clean "$pkg"
+            ;;
+        batch)
+            CACHE_BATCH_COUNTER=$((CACHE_BATCH_COUNTER + 1))
+            if (( CACHE_BATCH_COUNTER % CACHE_BATCH_THRESHOLD == 0 )); then
+                clean_package_cache true
+            fi
+            ;;
+        *)
+            # Unknown strategy: default to immediate
+            clean_package_cache true
+            ;;
+    esac
 }
 
 # Package removal function with multiple backends
@@ -1431,6 +1600,14 @@ echo
 
 # Clean and partition
 print_msg "Cleaning and partitioning the drive..."
+# Create a quick snapshot of the current system state so we can inspect
+# partitioning information if something goes wrong.
+create_pre_install_snapshot
+
+# Verify we have enough space on the target mount before continuing.
+# TARGET_MOUNT defaults to /mnt/usb; set it earlier if you use a different path.
+TARGET_MOUNT="/mnt/usb"
+check_disk_space
 ## Perform destructive operations carefully: check return codes and abort on failure
 if wipefs -a "${USB_DRIVE}"; then
     print_success "Clean successful"
@@ -1504,24 +1681,32 @@ fi
 if ! modinfo bcachefs &>/dev/null; then
     print_msg "bcachefs module not available in kernel. Attempting DKMS build..."
     
-    # Install bcachefs module using dkms
-    if package_install_and_check "bcachefs-dkms"; then
-        print_success "bcachefs-dkms package installed"
-        
-        # Run dkms manually to ensure module installation
-        dkms autoinstall || {
-            print_failed "DKMS module installation failed"
-            exit 1
-        }
-        
-        # Load the new module
-        if ! modprobe bcachefs &>/dev/null; then
-            print_failed "Failed to load bcachefs module even after DKMS installation"
-            print_warn "You might need to use a different filesystem like F2FS or ext4"
+    # Install bcachefs module using dkms. Prefer official repo, fallback to AUR.
+    if pacman -Si bcachefs-dkms &>/dev/null; then
+        if ! package_install_and_check "bcachefs-dkms"; then
+            print_failed "Failed to install bcachefs-dkms package from official repos"
             exit 1
         fi
     else
-        print_failed "Failed to install bcachefs-dkms package"
+        print_warn "bcachefs-dkms not in official repos, attempting AUR..."
+        if ! package_install_and_check "aur/bcachefs-dkms"; then
+            print_failed "Cannot install bcachefs support from AUR or official repos"
+            exit 1
+        fi
+    fi
+
+    print_success "bcachefs-dkms package installed"
+
+    # Run dkms manually to ensure module installation
+    dkms autoinstall || {
+        print_failed "DKMS module installation failed"
+        exit 1
+    }
+
+    # Load the new module
+    if ! modprobe bcachefs &>/dev/null; then
+        print_failed "Failed to load bcachefs module even after DKMS installation"
+        print_warn "You might need to use a different filesystem like F2FS or ext4"
         exit 1
     fi
     print_success "bcachefs module successfully loaded"
@@ -1562,8 +1747,13 @@ print_msg "Mounting partitions..."
 mkdir -p /mnt/usb
 # Use device nodes (safer than label lookup)
 mount "$PART_ESP" /mnt/usb || {
-    print_failed "Failed to mount ESP partition"
-    exit 1
+    # نیاز به retry mechanism
+    print_msg "Retrying mount in 3 seconds..."
+    sleep 3
+    mount "$PART_ESP" /mnt/usb || {
+        print_failed "Failed to mount ESP partition after retry"
+        exit 1
+    }
 }
 
 mkdir -p /mnt/usb/persistent
@@ -1756,11 +1946,11 @@ CHROOT_TZ="${CHROOT_TZ:-Asia/Tehran}"
 
 # Escape single quotes in values so they can be safely embedded in single-quoted
 # here-doc content inside the chroot file.
-CH_HOST_ESC=$(printf "%s" "${CHROOT_HOSTNAME}" | sed "s/'/'\\"'\\"'/g")
-CH_ROOT_ESC=$(printf "%s" "${CHROOT_ROOT_PW}" | sed "s/'/'\\"'\\"'/g")
-CH_USER_ESC=$(printf "%s" "${CHROOT_USER}" | sed "s/'/'\\"'\\"'/g")
-CH_USER_PW_ESC=$(printf "%s" "${CHROOT_USER_PW}" | sed "s/'/'\\"'\\"'/g")
-CH_TZ_ESC=$(printf "%s" "${CHROOT_TZ}" | sed "s/'/'\\"'\\"'/g")
+CH_HOST_ESC=$(printf '%s' "${CHROOT_HOSTNAME}" | sed "s/'/'\"'\"'/g")
+CH_ROOT_ESC=$(printf '%s' "${CHROOT_ROOT_PW}" | sed "s/'/'\"'\"'/g")
+CH_USER_ESC=$(printf '%s' "${CHROOT_USER}" | sed "s/'/'\"'\"'/g")
+CH_USER_PW_ESC=$(printf '%s' "${CHROOT_USER_PW}" | sed "s/'/'\"'\"'/g")
+CH_TZ_ESC=$(printf '%s' "${CHROOT_TZ}" | sed "s/'/'\"'\"'/g")
 
 # Write environment file that will be sourced inside chroot
 cat > /mnt/usb/persistent/arch_root/setup_env.sh <<EOF
@@ -3053,6 +3243,12 @@ update_system() {
     
     # به‌روزرسانی در محیط staging
     update_packages "$STAGING_ROOT" "$LOG_FILE"
+
+    # Clean package caches inside the staging root to reduce final squashfs size
+    log "Cleaning package caches inside staging root: $STAGING_ROOT"
+    pacman --root "$STAGING_ROOT" -Scc --noconfirm >/dev/null 2>&1 || true
+    rm -rf "$STAGING_ROOT/var/cache/pacman/pkg/*" 2>/dev/null || true
+    log "Staging cache cleaned before creating squashfs"
     
     # ایجاد فایل squashfs جدید
     log "Creating new squashfs image"
