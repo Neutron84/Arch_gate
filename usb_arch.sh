@@ -40,7 +40,7 @@ else
     RB="" GB="" BB="" YB="" PB="" CB="" WB="" BLACKB=""
     BOLD="" NC=""
 fi
-: ' 
+: <<'IGNORE'
 #  --- IGNORE ---
 Alternative color detection method (commented out)
 if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
@@ -85,7 +85,7 @@ else
     RB="" GB="" BB="" YB="" PB="" CB="" WB="" BLACKB=""
     BOLD="" NC=""
 fi
-'
+IGNORE
 
 # =============================================================================
 # ADVANCED LOGGING SYSTEM (Integrated with color system)
