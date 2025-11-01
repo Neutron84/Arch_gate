@@ -116,6 +116,88 @@ _log_level_to_num() {
     echo "${_LOG_LEVELS[$lvl]:-${_LOG_LEVELS[INFO]}}"
 }
 
+# Helper function to get partition paths safely (supports sdX and nvmeX)
+get_part_path() {
+    local disk="$1"
+    local part_num="$2"
+    local part_path=""
+
+    # Force kernel to re-read partition table
+    partprobe "$disk" 2>/dev/null
+    sync; sleep 1
+
+    # Try lsblk first (most reliable)
+    part_path=$(lsblk -no KNAME "$disk" | grep -E "${disk##*/}${part_num}$|${disk##*/}p${part_num}$" | head -n 1)
+    if [[ -b "/dev/${part_path}" ]]; then
+        echo "/dev/${part_path}"
+        return 0
+    fi
+    
+    # Fallback 1: nvme style (e.g., /dev/nvme0n1p2)
+    if [[ -b "${disk}p${part_num}" ]]; then
+        echo "${disk}p${part_num}"
+        return 0
+    fi
+    
+    # Fallback 2: sd style (e.g., /dev/sda2)
+    if [[ -b "${disk}${part_num}" ]]; then
+        echo "${disk}${part_num}"
+        return 0
+    fi
+
+    print_failed "Could not determine path for partition $part_num on $disk"
+    return 1
+}
+
+# Safely handle pacman lock: wait for existing pacman processes or remove stale lock
+safe_handle_pacman_lock() {
+    local lock_file="/var/lib/pacman/db.lck"
+    local timeout=${1:-60}
+    local waited=0
+
+    # If lock doesn't exist, nothing to do
+    if [[ ! -e "$lock_file" ]]; then
+        return 0
+    fi
+
+    print_msg "Detected pacman lock at $lock_file — waiting up to ${timeout}s for release"
+
+    while [[ -e "$lock_file" && $waited -lt $timeout ]]; do
+        # If any pacman process is running, wait
+        if command -v pgrep &>/dev/null && (pgrep -x pacman >/dev/null 2>&1 || pgrep -f pacman >/dev/null 2>&1); then
+            sleep 1
+            waited=$((waited + 1))
+            continue
+        fi
+
+        # No pacman process detected. If lock is old, consider it stale and remove it.
+        if command -v stat &>/dev/null; then
+            local mtime
+            mtime=$(stat -c %Y "$lock_file" 2>/dev/null || echo 0)
+            if [[ $mtime -gt 0 ]]; then
+                local age=$(( $(date +%s) - mtime ))
+                # If older than 5 minutes, remove as stale
+                if [[ $age -gt 300 ]]; then
+                    print_warn "Removing stale pacman lock (age ${age}s): $lock_file"
+                    rm -f "$lock_file" || return 1
+                    return 0
+                fi
+            fi
+        fi
+
+        # Small sleep before re-check
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    if [[ -e "$lock_file" ]]; then
+        print_warn "Pacman lock still present after ${timeout}s. Caller should decide whether to proceed."
+        return 1
+    fi
+
+    return 0
+}
+
 _should_log() {
     local want="$1"
     local wantn=$(_log_level_to_num "$want")
@@ -746,6 +828,11 @@ function install_aur_helper() {
             cd /tmp || return 1
             git clone https://aur.archlinux.org/yay.git || return 1
             cd yay || return 1
+            # Ensure makepkg is available (base-devel). If not, install base-devel.
+            if ! command -v makepkg &>/dev/null; then
+                print_msg "makepkg not found; installing base-devel"
+                package_install_pacman "base-devel" || return 1
+            fi
             makepkg -si --noconfirm || return 1
             cd ..
             rm -rf yay
@@ -756,6 +843,11 @@ function install_aur_helper() {
             cd /tmp || return 1
             git clone https://aur.archlinux.org/paru.git || return 1
             cd paru || return 1
+            # Ensure makepkg is available (base-devel). If not, install base-devel.
+            if ! command -v makepkg &>/dev/null; then
+                print_msg "makepkg not found; installing base-devel"
+                package_install_pacman "base-devel" || return 1
+            fi
             makepkg -si --noconfirm || return 1
             cd ..
             rm -rf paru
@@ -867,8 +959,8 @@ function package_install_pacman_single() {
     while [[ "$retry_count" -lt "$max_retries" && "$install_success" == false ]]; do
         retry_count=$((retry_count + 1))
         
-        # Remove pacman lock if exists
-        check_and_delete "/var/lib/pacman/db.lck"
+        # Wait for pacman lock to be released or remove if stale (safer than unconditional delete)
+        safe_handle_pacman_lock 60 || print_warn "pacman lock handling returned non-zero"
         
         print_msg "Installing package (pacman): ${C}$package_name"
         
@@ -1048,7 +1140,8 @@ function package_remove_pacman_single() {
     while [[ "$retry_count" -lt "$max_retries" && "$remove_success" == false ]]; do
         retry_count=$((retry_count + 1))
         
-        check_and_delete "/var/lib/pacman/db.lck"
+        # Wait for pacman lock to be released or remove if stale (safer than unconditional delete)
+        safe_handle_pacman_lock 60 || print_warn "pacman lock handling returned non-zero"
         print_msg "Removing package: ${C}$package_name"
         
         if pacman -Rns --noconfirm "$package_name" 2>/dev/null; then
@@ -1230,7 +1323,15 @@ function check_dependencies() {
             # Use wrapper where possible for retries
             if ! package_install_and_check "$pkg"; then
                 print_warn "Auto-install failed for $pkg; attempting direct pacman"
-                if ! pacman -S --noconfirm --needed "$pkg" &>/dev/null; then
+                # Use sudo if available (some live ISOs may not have sudo)
+                if command -v sudo &>/dev/null; then
+                    sudo_cmd="sudo"
+                else
+                    sudo_cmd=""
+                    print_warn "sudo not found; using direct root pacman invocation"
+                fi
+
+                if ! $sudo_cmd pacman -S --noconfirm --needed "$pkg" &>/dev/null; then
                     print_failed "Failed to install dependency: $pkg"
                 else
                     print_success "Installed dependency: $pkg"
@@ -1400,8 +1501,8 @@ if ! package_install_and_check "bcachefs-tools dkms linux-headers"; then
 fi
 
 # Check if bcachefs module already exists
-if ! modprobe bcachefs &>/dev/null; then
-    print_msg "bcachefs module not found. Building with DKMS..."
+if ! modinfo bcachefs &>/dev/null; then
+    print_msg "bcachefs module not available in kernel. Attempting DKMS build..."
     
     # Install bcachefs module using dkms
     if package_install_and_check "bcachefs-dkms"; then
@@ -1414,11 +1515,11 @@ if ! modprobe bcachefs &>/dev/null; then
         }
         
         # Load the new module
-        modprobe bcachefs || {
+        if ! modprobe bcachefs &>/dev/null; then
             print_failed "Failed to load bcachefs module even after DKMS installation"
             print_warn "You might need to use a different filesystem like F2FS or ext4"
             exit 1
-        }
+        fi
     else
         print_failed "Failed to install bcachefs-dkms package"
         exit 1
@@ -1429,9 +1530,21 @@ else
 fi
 
 
+# Detect and format/mount partitions (supports sdX and nvmeX)
+print_msg "Detecting partition paths..."
+PART_ESP=$(get_part_path "$USB_DRIVE" 2)
+PART_MAIN=$(get_part_path "$USB_DRIVE" 3)
+
+if [[ -z "$PART_ESP" || -z "$PART_MAIN" ]]; then
+    print_failed "Failed to detect partition paths. Aborting."
+    exit 1
+fi
+print_success "ESP Partition: $PART_ESP"
+print_success "Main Partition: $PART_MAIN"
+
 # Format partitions
 print_msg "Formatting partitions..."
-mkfs.fat -F32 -n ARCH_ESP ${USB_DRIVE}2 && print_success "ESP format successful" || print_failed "Error formatting ESP"
+mkfs.fat -F32 -n ARCH_ESP "$PART_ESP" && print_success "ESP format successful" || print_failed "Error formatting ESP"
 
 print_msg "Formatting main partition with bcachefs..."
 bcachefs format --label ARCH_PERSIST \
@@ -1442,19 +1555,19 @@ bcachefs format --label ARCH_PERSIST \
     --data_checksum=xxhash \
     --metadata_checksum=xxhash \
     --encrypted=none \
-    ${USB_DRIVE}3 && print_success "Main partition format successful" || print_failed "Error formatting main partition"
+    "$PART_MAIN" && print_success "Main partition format successful" || print_failed "Error formatting main partition"
 
 # Mount partitions
 print_msg "Mounting partitions..."
 mkdir -p /mnt/usb
 # Use device nodes (safer than label lookup)
-mount ${USB_DRIVE}2 /mnt/usb || {
+mount "$PART_ESP" /mnt/usb || {
     print_failed "Failed to mount ESP partition"
     exit 1
 }
 
 mkdir -p /mnt/usb/persistent
-mount ${USB_DRIVE}3 /mnt/usb/persistent || {
+mount "$PART_MAIN" /mnt/usb/persistent || {
     print_failed "Failed to mount main partition"
     exit 1
 }
@@ -1588,96 +1701,224 @@ fi
 print_msg "Generating fstab..."
 genfstab -U /mnt/usb/persistent/arch_root >> /mnt/usb/persistent/arch_root/etc/fstab
 
+# Collect non-interactive inputs for the chrooted setup script. These values
+# will be exported into /setup_env.sh inside the chroot so that the chrooted
+# /setup.sh can run without interactive prompts.
+print_msg "Now collecting configuration for the chrooted setup (hostname and passwords)."
+
+# Hostname
+print_msg "Enter system hostname for the installed system (default: arch-usb):"
+read -r CHROOT_HOSTNAME
+CHROOT_HOSTNAME="${CHROOT_HOSTNAME:-arch-usb}"
+
+# Root password (hidden, with confirmation)
+while true; do
+    print_msg "Enter root password for installed system (input hidden):"
+    read -r -s CHROOT_ROOT_PW
+    echo
+    print_msg "Confirm root password:"
+    read -r -s CHROOT_ROOT_PW_CONFIRM
+    echo
+    if [[ "${CHROOT_ROOT_PW}" == "${CHROOT_ROOT_PW_CONFIRM}" && -n "${CHROOT_ROOT_PW}" ]]; then
+        break
+    fi
+    print_failed "Root passwords do not match or empty. Please try again."
+done
+
+# Username
+print_msg "Enter username for regular user inside installed system (default: user):"
+read -r CHROOT_USER
+CHROOT_USER="${CHROOT_USER:-user}"
+while [[ ! "${CHROOT_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]]; do
+    print_failed "Invalid username. Use only lowercase letters, numbers, - and _. Try again:"
+    read -r CHROOT_USER
+    CHROOT_USER="${CHROOT_USER:-user}"
+done
+
+# User password (hidden, with confirmation)
+while true; do
+    print_msg "Enter password for ${CHROOT_USER} (input hidden):"
+    read -r -s CHROOT_USER_PW
+    echo
+    print_msg "Confirm password for ${CHROOT_USER}:"
+    read -r -s CHROOT_USER_PW_CONFIRM
+    echo
+    if [[ "${CHROOT_USER_PW}" == "${CHROOT_USER_PW_CONFIRM}" && -n "${CHROOT_USER_PW}" ]]; then
+        break
+    fi
+    print_failed "User passwords do not match or empty. Please try again."
+done
+
+# Timezone
+print_msg "Enter timezone for the installed system (e.g., 'Asia/Tehran') (default: Asia/Tehran):"
+read -r CHROOT_TZ
+CHROOT_TZ="${CHROOT_TZ:-Asia/Tehran}"
+
+# Escape single quotes in values so they can be safely embedded in single-quoted
+# here-doc content inside the chroot file.
+CH_HOST_ESC=$(printf "%s" "${CHROOT_HOSTNAME}" | sed "s/'/'\\"'\\"'/g")
+CH_ROOT_ESC=$(printf "%s" "${CHROOT_ROOT_PW}" | sed "s/'/'\\"'\\"'/g")
+CH_USER_ESC=$(printf "%s" "${CHROOT_USER}" | sed "s/'/'\\"'\\"'/g")
+CH_USER_PW_ESC=$(printf "%s" "${CHROOT_USER_PW}" | sed "s/'/'\\"'\\"'/g")
+CH_TZ_ESC=$(printf "%s" "${CHROOT_TZ}" | sed "s/'/'\\"'\\"'/g")
+
+# Write environment file that will be sourced inside chroot
+cat > /mnt/usb/persistent/arch_root/setup_env.sh <<EOF
+#!/bin/bash
+export HOSTNAME='${CH_HOST_ESC}'
+export ROOT_PASSWORD='${CH_ROOT_ESC}'
+export USERNAME='${CH_USER_ESC}'
+export USER_PASSWORD='${CH_USER_PW_ESC}'
+export TIMEZONE='${CH_TZ_ESC}'
+EOF
+chmod 600 /mnt/usb/persistent/arch_root/setup_env.sh
+
 
 cat > /mnt/usb/persistent/arch_root/setup.sh <<'EOF'
 #!/bin/bash
-ln -sf /usr/share/zoneinfo/Asia/Tehran /etc/localtime
+# Timezone: prefer injected value, otherwise prompt (fallback default Asia/Tehran)
+if [ -f /setup_env.sh ]; then
+    . /setup_env.sh || true
+fi
+if [ -n "${TIMEZONE:-}" ]; then
+    TZVAL="${TIMEZONE}"
+else
+    print_msg "Enter system timezone (e.g., Region/City) (default: Asia/Tehran):"
+    read -r TZVAL
+    TZVAL="${TZVAL:-Asia/Tehran}"
+fi
+ln -sf "/usr/share/zoneinfo/$TZVAL" /etc/localtime
 hwclock --systohc
 echo "en_US.UTF-8 UTF-8" > /etc/locale.gen
 locale-gen
 echo "LANG=en_US.UTF-8" > /etc/locale.conf
-# Get system hostname
-print_msg "Enter system hostname (default: arch-usb):"
-read -r HOSTNAME
-HOSTNAME="\${HOSTNAME:-arch-usb}"
-echo "\$HOSTNAME" > /etc/hostname
+# Provide minimal print_* functions in chroot (the full logging helpers are defined
+# in the outer script and are not available inside the chroot). These simple
+# fallbacks avoid "command not found" errors and print plain messages.
+print_msg() { echo "$*"; }
+print_warn() { echo "$*"; }
+print_failed() { echo "$*"; }
+print_success() { echo "$*"; }
+# If the installer injected an environment file, source it to obtain non-interactive
+# inputs (HOSTNAME, ROOT_PASSWORD, USERNAME, USER_PASSWORD).
+if [ -f /setup_env.sh ]; then
+    . /setup_env.sh
+fi
+# Non-interactive path: if the outer installer injected HOSTNAME, ROOT_PASSWORD,
+# USERNAME and USER_PASSWORD into /setup_env.sh we prefer that and do not attempt
+# to read from a tty (arch-chroot call is non-interactive). Otherwise fall back
+# to the original interactive prompts.
+if [ -n "\${HOSTNAME:-}" ] && [ -n "\${ROOT_PASSWORD:-}" ] && [ -n "\${USERNAME:-}" ] && [ -n "\${USER_PASSWORD:-}" ]; then
+    HOSTNAME="\${HOSTNAME:-arch-usb}"
+    echo "\$HOSTNAME" > /etc/hostname
 
-# Get and set root password
-while true; do
-    print_msg "Enter root password:"
-    read -r -s ROOT_PASSWORD
-    echo
-    print_msg "Confirm root password:"
-    read -r -s ROOT_PASSWORD_CONFIRM
-    echo
-    
-    if [[ "\$ROOT_PASSWORD" == "\$ROOT_PASSWORD_CONFIRM" ]]; then
-        if [[ -z "\$ROOT_PASSWORD" ]]; then
-            print_warn "Password cannot be empty. Please try again."
-            continue
-        fi
-        echo "root:\$ROOT_PASSWORD" | chpasswd
-        break
-    else
-        print_failed "Passwords do not match. Please try again."
+    if [[ -n "\${ROOT_PASSWORD:-}" ]]; then
+        echo "root:\${ROOT_PASSWORD}" | chpasswd
     fi
-done
 
-# Get regular user information
-while true; do
-    print_msg "Enter username for regular user (default: user):"
-    read -r USERNAME
     USERNAME="\${USERNAME:-user}"
-    
-    # Validate username
-    if [[ ! "\$USERNAME" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
-        print_failed "Invalid username. Use only lowercase letters, numbers, - and _"
-        continue
+    if ! id "\$USERNAME" &>/dev/null; then
+        useradd -m -G wheel -s /bin/bash "\$USERNAME"
     fi
-    
-    # Check for duplicate username
-    if id "\$USERNAME" &>/dev/null; then
-        print_failed "Username already exists. Please choose another one."
-        continue
+
+    if [[ -n "\${USER_PASSWORD:-}" ]]; then
+        echo "\${USERNAME}:\${USER_PASSWORD}" | chpasswd
     fi
-    
-    break
-done
 
-# Create user
-useradd -m -G wheel -s /bin/bash "\$USERNAME"
+    echo "%wheel ALL=(ALL:ALL) ALL" >> /etc/sudoers
 
-# Get and set user password
-while true; do
-    print_msg "Enter password for \$USERNAME:"
-    read -r -s USER_PASSWORD
-    echo
-    print_msg "Confirm password for \$USERNAME:"
-    read -r -s USER_PASSWORD_CONFIRM
-    echo
-    
-    if [[ "\$USER_PASSWORD" == "\$USER_PASSWORD_CONFIRM" ]]; then
-        if [[ -z "\$USER_PASSWORD" ]]; then
-            print_warn "Password cannot be empty. Please try again."
+    systemctl enable NetworkManager systemd-oomd fstrim.timer
+
+    echo "User accounts configured successfully:
+- Hostname: \${HOSTNAME}
+- Root account configured
+- Regular user '\${USERNAME}' created with sudo access"
+else
+    # --- BEGIN original interactive prompts (kept for fallback) ---
+    # Get system hostname
+    print_msg "Enter system hostname (default: arch-usb):"
+    read -r HOSTNAME
+    HOSTNAME="\${HOSTNAME:-arch-usb}"
+    echo "\$HOSTNAME" > /etc/hostname
+
+    # Get and set root password
+    while true; do
+        print_msg "Enter root password:"
+        read -r -s ROOT_PASSWORD
+        echo
+        print_msg "Confirm root password:"
+        read -r -s ROOT_PASSWORD_CONFIRM
+        echo
+        
+        if [[ "\$ROOT_PASSWORD" == "\$ROOT_PASSWORD_CONFIRM" ]]; then
+            if [[ -z "\$ROOT_PASSWORD" ]]; then
+                print_warn "Password cannot be empty. Please try again."
+                continue
+            fi
+            echo "root:\$ROOT_PASSWORD" | chpasswd
+            break
+        else
+            print_failed "Passwords do not match. Please try again."
+        fi
+    done
+
+    # Get regular user information
+    while true; do
+        print_msg "Enter username for regular user (default: user):"
+        read -r USERNAME
+        USERNAME="\${USERNAME:-user}"
+        
+        # Validate username
+        if [[ ! "\$USERNAME" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+            print_failed "Invalid username. Use only lowercase letters, numbers, - and _"
             continue
         fi
-        echo "\$USERNAME:\$USER_PASSWORD" | chpasswd
+        
+        # Check for duplicate username
+        if id "\$USERNAME" &>/dev/null; then
+            print_failed "Username already exists. Please choose another one."
+            continue
+        fi
+        
         break
-    else
-        print_failed "Passwords do not match. Please try again."
-    fi
-done
+    done
 
-# Configure sudo access
-echo "%wheel ALL=(ALL:ALL) ALL" >> /etc/sudoers
+    # Create user
+    useradd -m -G wheel -s /bin/bash "\$USERNAME"
 
-# Enable base services
-systemctl enable NetworkManager systemd-oomd fstrim.timer
+    # Get and set user password
+    while true; do
+        print_msg "Enter password for \$USERNAME:"
+        read -r -s USER_PASSWORD
+        echo
+        print_msg "Confirm password for \$USERNAME:"
+        read -r -s USER_PASSWORD_CONFIRM
+        echo
+        
+        if [[ "\$USER_PASSWORD" == "\$USER_PASSWORD_CONFIRM" ]]; then
+            if [[ -z "\$USER_PASSWORD" ]]; then
+                print_warn "Password cannot be empty. Please try again."
+                continue
+            fi
+            echo "\$USERNAME:\$USER_PASSWORD" | chpasswd
+            break
+        else
+            print_failed "Passwords do not match. Please try again."
+        fi
+    done
 
-print_success "User accounts configured successfully:
+    # Configure sudo access
+    echo "%wheel ALL=(ALL:ALL) ALL" >> /etc/sudoers
+
+    # Enable base services
+    systemctl enable NetworkManager systemd-oomd fstrim.timer
+
+    print_success "User accounts configured successfully:
 - Hostname: \$HOSTNAME
 - Root account configured
 - Regular user '\$USERNAME' created with sudo access"
+    # --- END original interactive prompts ---
+fi
 
 # zram and zswap auto-tuning script
 cat > /usr/local/bin/configure-memory <<'MEMCONF'
@@ -2686,34 +2927,55 @@ commit_transaction() {
 # Rollback transaction function
 rollback_transaction() {
     log "Rolling back transaction $TRANSACTION_ID"
+    local rollback_success=true
+    local OLD_SQUASHFS="/persistent/arch/root.squashfs"
+    local OLD_SQUASHFS_BACKUP="${OLD_SQUASHFS}.old"
 
-    # Restore previous files from backup
+    # --- اصلاحیه ۱: بازگردانی root.squashfs ---
+    log "Rolling back root filesystem..."
+    if [ -f "$OLD_SQUASHFS_BACKUP" ]; then
+        # حذف فایل squashfs جدید/خراب
+        rm -f "$OLD_SQUASHFS"
+        # بازگردانی فایل قدیمی
+        mv "$OLD_SQUASHFS_BACKUP" "$OLD_SQUASHFS"
+        log "Successfully rolled back $OLD_SQUASHFS"
+    else
+        log "ERROR: Cannot rollback rootfs. Backup $OLD_SQUASHFS_BACKUP not found!"
+        rollback_success=false
+    fi
+    # --- پایان اصلاحیه ۱ ---
+
+    # Restore previous files from backup (Kernel)
+    log "Rolling back kernel files..."
     if [ -f "${ESP_MOUNT}/arch/vmlinuz-linux.old" ] && [ -f "${ESP_MOUNT}/arch/initramfs-linux.img.old" ]; then
-        # Remove problematic versions
+        # حذف نسخه‌های مشکل‌دار از ESP
         rm -f "${ESP_MOUNT}/arch/vmlinuz-linux"
         rm -f "${ESP_MOUNT}/arch/initramfs-linux.img"
         
-        # بازگرداندن نسخه‌های قبلی
+        # بازگرداندن به ESP
         mv "${ESP_MOUNT}/arch/vmlinuz-linux.old" "${ESP_MOUNT}/arch/vmlinuz-linux"
         mv "${ESP_MOUNT}/arch/initramfs-linux.img.old" "${ESP_MOUNT}/arch/initramfs-linux.img"
         
-        # کپی به پارتیشن پایدار برای نگهداری
+        # کپی به پارتیشن پایدار (جایی که GRUB بوت می‌شود)
         cp "${ESP_MOUNT}/arch/vmlinuz-linux" "/persistent/arch/"
         cp "${ESP_MOUNT}/arch/initramfs-linux.img" "/persistent/arch/"
         
-        # اجرای sync برای اطمینان از نوشته شدن تغییرات
-        sync
-        /usr/local/bin/enforced-sync
+        log "Successfully rolled back kernel files"
     else
-        log "Error: Backup kernel files not found in ESP"
-        return 1
+        log "ERROR: Backup kernel files not found in ESP. Kernel rollback failed."
+        rollback_success=false
     fi
     
     # حذف فایل‌های staging
     rm -rf "$STAGING_ROOT"
     
-    echo "rolledback" > "$TRANSACTION_DIR/$TRANSACTION_ID/status"
-    log "Transaction $TRANSACTION_ID rolled back"
+    if [ "$rollback_success" = true ]; then
+        echo "rolledback" > "$TRANSACTION_DIR/$TRANSACTION_ID/status"
+        log "Transaction $TRANSACTION_ID rolled back successfully"
+    else
+        echo "rollback_failed" > "$TRANSACTION_DIR/$TRANSACTION_ID/status"
+        log "CRITICAL: Transaction $TRANSACTION_ID rollback FAILED. System may be unstable."
+    fi
     
     # sync اجباری بعد از rollback
     sync
@@ -2724,18 +2986,47 @@ rollback_transaction() {
 update_packages() {
     local CHROOT_DIR="$1"
     local LOG_FILE="$2"
-    
-    log "Updating packages in chroot environment"
-    arch-chroot "$CHROOT_DIR" /bin/bash -c "
-        # بروزرسانی پکیج‌ها
-        pacman -Syu --noconfirm 2>&1 || exit 1
-        # اجرای مجدد mkinitcpio برای هسته جدید
-        mkinitcpio -P 2>&1 || exit 1
-    " >> "$LOG_FILE" 2>&1
-    
-    if [ $? -ne 0 ]; then
-        error_exit "Package update failed in chroot"
+
+    log "Updating packages in target root: $CHROOT_DIR"
+
+    # Use pacman with --root to operate directly on the target root.
+    # This avoids requiring a full interactive chroot environment for pacman.
+    if ! pacman --root "$CHROOT_DIR" -Syu --noconfirm >> "$LOG_FILE" 2>&1; then
+        error_exit "pacman update failed for root: $CHROOT_DIR"
     fi
+
+    # Some post-install hooks (like mkinitcpio) require kernel modules and
+    # virtual filesystems. We'll bind-mount minimal pseudo-filesystems only for
+    # the duration of running mkinitcpio inside the target root.
+    local MOUNTS_MADE=()
+    for m in dev proc sys run; do
+        if ! mountpoint -q "$CHROOT_DIR/$m"; then
+            mkdir -p "$CHROOT_DIR/$m"
+            mount --bind "/$m" "$CHROOT_DIR/$m" || {
+                log "Warning: failed to bind mount /$m into $CHROOT_DIR (continuing)"
+                continue
+            }
+            MOUNTS_MADE+=("$CHROOT_DIR/$m")
+        fi
+    done
+
+    # Run mkinitcpio inside the target root to regenerate initramfs images.
+    # Use arch-chroot for this small operation because mkinitcpio expects a
+    # proper /proc and /dev; we've bind-mounted them above.
+    if ! arch-chroot "$CHROOT_DIR" /usr/bin/mkinitcpio -P >> "$LOG_FILE" 2>&1; then
+        # Attempt best-effort cleanup mounts before failing
+        for mp in "${MOUNTS_MADE[@]}"; do
+            umount -l "$mp" 2>/dev/null || true
+        done
+        error_exit "mkinitcpio failed in target root: $CHROOT_DIR"
+    fi
+
+    # Cleanup bind mounts we created
+    for mp in "${MOUNTS_MADE[@]}"; do
+        umount -l "$mp" 2>/dev/null || true
+    done
+
+    log "Package update and initramfs generation completed for $CHROOT_DIR"
 }
 
 # تابع به‌روزرسانی سیستم‌عامل با پشتیبانی از squashfs
@@ -3461,9 +3752,15 @@ apply_gpu_profile() {
     case $gpu_type in
         nvidia)
             if command -v nvidia-smi &> /dev/null; then
-                nvidia-smi -pm 1
-                nvidia-smi --auto-boost-default=0
-                nvidia-smi -ac 2100,800
+                # Do NOT apply aggressive clock/power settings by default.
+                # These can be unstable on some hardware and should be opt-in.
+                if [[ -f "/etc/hardware-profiles/enable-nvidia-aggressive" ]]; then
+                    nvidia-smi -pm 1
+                    nvidia-smi --auto-boost-default=0
+                    nvidia-smi -ac 2100,800
+                else
+                    echo "NVIDIA aggressive settings are disabled by default. To enable, create /etc/hardware-profiles/enable-nvidia-aggressive"
+                fi
             fi
             cat > /etc/environment.d/10-nvidia.conf <<CONF
 LIBVA_DRIVER_NAME=nvidia
