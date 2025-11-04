@@ -1,247 +1,259 @@
-# راهنمای جامع سیستم Arch Linux USB
+# Arch Linux USB — User Manual (English)
 
-این راهنما شامل تمام ابزارها و قابلیت‌های نصب شده در سیستم Arch Linux USB شما است.
+This manual documents the tools, services and workflows included in the Arch Linux USB installer and runtime image. It is intended as a concise reference for operators installing and maintaining the USB-based Arch system provided by this project.
 
-## 📑 فهرست مطالب
-1. [سیستم ایمنی و بازیابی](#1-سیستم-ایمنی-و-بازیابی)
-2. [سیستم به‌روزرسانی اتمی](#2-سیستم-به‌روزرسانی-اتمی)
-3. [بهینه‌سازی‌های پیشرفته](#3-بهینه‌سازی‌های-پیشرفته)
+Table of contents
+- Safety & Recovery
+- Atomic Update System
+- Advanced Optimizations
+- Package Management & Cache Cleaning
+- Kernel & Driver Notes
 
-## 1. سیستم ایمنی و بازیابی
+---
 
-### 1.1. مدیریت همگام‌سازی (Sync)
+## Safety & Recovery
+
+These tools provide data integrity, automatic recovery, and automatic remediation features to reduce the risk of data loss on removable media.
+
+1) Forced sync utility
+
 ```bash
-# اجرای دستی همگام‌سازی اجباری
+# Run an immediate enforced sync
 enforced-sync
 
-# فعال/غیرفعال کردن همگام‌سازی دوره‌ای
-systemctl enable periodic-sync.timer    # فعال‌سازی
-systemctl disable periodic-sync.timer   # غیرفعال‌سازی
-systemctl status periodic-sync.timer    # مشاهده وضعیت
+# Enable/disable periodic enforced sync
+systemctl enable periodic-sync.timer
+systemctl disable periodic-sync.timer
+systemctl status periodic-sync.timer
 ```
 
-### 1.2. مانیتورینگ سلامت I/O
+2) I/O health monitoring
+
 ```bash
-# مشاهده وضعیت مانیتورینگ
+# Check the I/O health monitor service
 systemctl status io-health-monitor.service
 
-# بررسی لاگ‌های سلامت
+# Follow the I/O health log
 tail -f /var/log/io-health.log
 ```
 
-### 1.3. مدیریت Snapshot و بازیابی
+3) Snapshot and recovery
+
 ```bash
-# ایجاد دستی snapshot
+# Create a manual snapshot
 create-system-snapshot
 
-# مدیریت سرویس snapshot خودکار
-systemctl enable system-snapshot.timer     # فعال‌سازی
-systemctl disable system-snapshot.timer    # غیرفعال‌سازی
-systemctl status system-snapshot.timer     # مشاهده وضعیت
+# Manage the automatic snapshot timer
+systemctl enable system-snapshot.timer
+systemctl disable system-snapshot.timer
+systemctl status system-snapshot.timer
 
-# مشاهده snapshots موجود
+# List snapshots
 ls -l /persistent/snapshots/
 ```
 
-### 1.4. تله‌متری و مانیتورینگ
+4) Telemetry and performance metrics
+
 ```bash
-# مشاهده متریک‌های عملکردی
+# View collected metrics
 cat /persistent/telemetry/performance-metrics.csv
 
-# مدیریت سرویس تله‌متری
+# Manage telemetry timer/service
 systemctl status performance-telemetry.timer
 systemctl enable performance-telemetry.timer
 systemctl disable performance-telemetry.timer
 ```
 
-### 1.5. تشخیص قطع برق
+5) Power-failure detection and emergency handling
+
 ```bash
-# مشاهده وضعیت سرویس
+# View power-failure service
 systemctl status power-failure-detector.service
 
-# بررسی لاگ‌های مرتبط
+# Follow power event log
 tail -f /var/log/power-events.log
 ```
 
-## 2. سیستم به‌روزرسانی اتمی
+---
 
-### 2.1. مدیریت به‌روزرسانی
+## Atomic Update System
+
+The image uses an atomic-update design: updates are prepared in a staging area, converted to a read-only root image (squashfs/erofs), then atomically swapped in. This reduces the chance of an unbootable system after an interrupted update.
+
+Basic commands
+
 ```bash
-# به‌روزرسانی سیستم
+# Run the update (do not interrupt)
 atomic-update-manager update-system
 
-# بازگشت به نسخه قبلی
+# Roll back the last transaction (if a failure occurred)
 atomic-update-manager rollback
 
-# مشاهده وضعیت
+# Show current transaction status
 atomic-update-manager status
 ```
 
-### 2.2. مدیریت Snapshot‌های اتمی
+Snapshot management
+
 ```bash
-# ایجاد snapshot قبل از به‌روزرسانی
+# Create a snapshot before update
 atomic-snapshot pre-update
 
-# نمایش اطلاعات snapshot‌ها
+# List snapshot information
 atomic-snapshot info
 
-# چرخش دستی snapshot‌ها
+# Rotate snapshots (manual)
 atomic-snapshot rotate
 
-# تنظیم تعداد حداکثر snapshot‌ها
+# Set maximum snapshots to retain
 atomic-snapshot set-max 5
 ```
 
-### 2.3. بازیابی از Snapshot
+Recovering from snapshots
+
 ```bash
-# مشاهده لیست snapshot‌ها
+# List available recovery archives
 atomic-recovery list
 
-# بازیابی از snapshot
-atomic-recovery recover /persistent/snapshots/atomic-snapshot-20251022-120000.tar.gz
+# Recover from a snapshot archive
+atomic-recovery recover /persistent/snapshots/atomic-snapshot-YYYYMMDD-HHMMSS.tar.gz
 ```
 
-## 3. بهینه‌سازی‌های پیشرفته
+Notes
+- The update process will verify squashfs integrity and back up the previous root image before switching.
+- mkinitcpio is executed inside the staging environment with minimal bind mounts; if mkinitcpio fails the transaction will be aborted and rolled back.
+- The rollback action restores the previous squashfs image and kernel artifacts from backup.
 
-### 3.1. مدیریت ZSWAP
+---
+
+## Advanced Optimizations
+
+This section lists optional services and helpers that are installed in the runtime image.
+
+ZSWAP configuration
+
 ```bash
-# پیکربندی مجدد ZSWAP
+# Reconfigure zswap with current heuristics
 /usr/local/bin/configure-zswap
 
-# مشاهده وضعیت فعلی
+# View zswap parameters
 cat /proc/sys/vm/zswap*
 cat /sys/module/zswap/parameters/*
-
-# مدیریت سرویس
-systemctl status configure-zswap.service
 ```
 
-### 3.2. مدیریت Bcachefs
+Bcachefs optimizations
+
 ```bash
-# اجرای بهینه‌سازی‌ها
+# Apply bcachefs optimizations
 /usr/local/bin/optimize-bcachefs
 
-# مشاهده وضعیت
+# Show bcachefs status
 bcachefs fs show /dev/disk/by-label/ARCH_PERSIST
 ```
 
-### 3.3. مدیریت Prefetch
-```bash
-# اجرای دستی
-smart-prefetch on-login    # در زمان ورود
-smart-prefetch periodic    # دوره‌ای
+Smart prefetch
 
-# مدیریت سرویس
-systemctl status smart-prefetch.timer
-systemctl enable smart-prefetch.timer
-systemctl disable smart-prefetch.timer
+```bash
+# Run on-login prefetch
+smart-prefetch on-login
+
+# Run periodic prefetch
+smart-prefetch periodic
 ```
 
-### 3.4. پروفایل‌های سخت‌افزاری
+Service management examples
+
 ```bash
-# اجرای مجدد تشخیص و اعمال
-hardware-profile-manager
-
-# مشاهده پروفایل فعلی
-cat /etc/hardware-profiles/current
-
-# مدیریت سرویس
-systemctl status hardware-profile.service
-```
-
-### 3.5. بهینه‌سازی I/O
-```bash
-# اجرای دستی بهینه‌سازی‌ها
-advanced-write-optimizer
-
-# مشاهده تنظیمات فعلی
-cat /proc/sys/vm/dirty_*
-cat /sys/block/sd*/queue/scheduler
-
-# مدیریت سرویس
-systemctl status io-optimizer.service
-```
-
-##  نکات مهم در مورد کرنل و درایورها
-
-### مدیریت نسخه کرنل
-سیستم به طور هوشمند تلاش می‌کند نسخه کرنل نصب شده با محیط Live هماهنگ باشد:
-```bash
-# نمایش نسخه کرنل فعلی
-uname -r
-
-# بررسی نسخه کرنل نصب شده
-pacman -Q linux
-
-# بررسی وضعیت ماژول‌های کرنل
-lsmod
-```
-
-در صورت نیاز به تغییر نسخه کرنل:
-1. از محیط Live با نسخه کرنل مورد نظر بوت کنید
-2. اسکریپت نصب را اجرا کنید
-3. تأیید کنید که می‌خواهید نسخه کرنل محیط Live نصب شود
-
-### راه‌اندازی مجدد mkinitcpio
-در صورت نیاز به بازسازی initramfs:
-```bash
-# برای نسخه کرنل خاص
-mkinitcpio --kernel <kernel-version> -P
-
-# برای همه نسخه‌های نصب شده
-mkinitcpio -P
-```
-
-##  گزینه‌های بوت GRUB
-
-سیستم شما دارای گزینه‌های بوت متنوعی است:
-
-1. **Arch Linux USB (Automatic Profile)**
-   - انتخاب خودکار پروفایل بر اساس RAM
-
-2. **Arch Linux USB (Low Resource Mode - 2GB RAM)**
-   - بهینه‌شده برای سیستم‌های با RAM کم
-
-3. **Arch Linux USB (Medium Resource Mode - 2-8GB RAM)**
-   - تنظیمات متعادل برای سیستم‌های معمولی
-
-4. **Arch Linux USB (High Resource Mode - 8GB+ RAM)**
-   - عملکرد بالا برای سیستم‌های قوی
-
-5. **Arch Linux USB (Safe Mode)**
-   - حالت امن با حداقل درایورها
-
-6. **Arch Linux USB (Recovery Mode - Read Only)**
-   - حالت بازیابی با فایل‌سیستم فقط-خواندنی
-
-7. **Arch Linux USB (Snapshot Recovery)**
-   - بازیابی از snapshot
-
-## ⚙️ مدیریت کلی سیستم
-
-### بررسی وضعیت تمام سرویس‌ها
-```bash
-# مشاهده وضعیت همه سرویس‌های بهینه‌سازی
 systemctl status configure-zswap.service
 systemctl status bcachefs-optimize.service
 systemctl status smart-prefetch.timer
-systemctl status hardware-profile.service
-systemctl status io-optimizer.service
-systemctl status final-optimizations.service
-```
-
-### بررسی لاگ‌های سیستم
-```bash
-# لاگ‌های سیستمی
-journalctl -xe
-
-# لاگ‌های به‌روزرسانی
-tail -f /var/log/atomic-updates.log
-
-# لاگ‌های بهینه‌سازی
-tail -f /var/log/io-health.log
-tail -f /var/log/prefetch.log
 ```
 
 ---
-🔍 **نکته**: همیشه قبل از انجام تغییرات مهم، یک snapshot ایجاد کنید.
+
+## Package Management & Cache Cleaning
+
+To minimize used space on removable media the installer includes automatic cache management.
+
+Configuration variables (set these in the environment or edit the top of `usb_arch.sh`):
+
+- AUTO_CLEAN_CACHE=true|false — enable or disable automatic cleaning (default: true)
+- CACHE_CLEAN_STRATEGY=immediate|batch|smart — cleaning strategy (default: immediate)
+- CACHE_BATCH_THRESHOLD=N — number of installs before a batch clean (default: 5)
+
+Strategies
+
+- immediate: Clean caches after every successful package installation.
+- batch: Clean caches every N successful installs (controlled by CACHE_BATCH_THRESHOLD).
+- smart: Inspect the installed package's size and clean only for large packages (>= ~50MB).
+
+Examples
+
+```bash
+# Disable automatic cache cleaning for troubleshooting
+export AUTO_CLEAN_CACHE=false
+
+# Use batch cleaning every 10 packages
+export CACHE_CLEAN_STRATEGY=batch
+export CACHE_BATCH_THRESHOLD=10
+
+# Use smart cleaning behavior
+export CACHE_CLEAN_STRATEGY=smart
+```
+
+Atomic update staging cache cleaning
+
+- During `atomic-update-manager update-system`, the updater will proactively clean the staging root's pacman cache (inside the staging chroot) before creating the squashfs image to minimize the image size.
+
+Manual cache cleaning
+
+```bash
+# Clean pacman cache and AUR helper caches (when running on the installed system)
+clean_package_cache
+
+# Silent mode
+clean_package_cache true
+```
+
+Tradeoffs
+
+- Cleaning caches reduces disk usage but removes the local package artifacts that enable quick local reinstalls.
+- If you need offline reinstalls from the USB drive, set `AUTO_CLEAN_CACHE=false` or use the batch/smart strategies.
+
+---
+
+## Kernel & Driver Notes
+
+Kernel compatibility
+
+- The installer attempts to keep the installed kernel compatible with the running live environment.
+- If you need a different kernel version, boot the live environment with your desired kernel and re-run the installer.
+
+Rebuilding initramfs
+
+```bash
+# Rebuild initramfs for a specific kernel
+mkinitcpio --kernel <kernel-version> -P
+
+# Rebuild for all installed kernels
+mkinitcpio -P
+```
+
+GRUB boot entries
+
+The system ships with multiple boot menu entries (automatic profile selection, low/medium/high resource modes, safe mode, recovery, snapshot recovery).
+
+---
+
+## Logging and troubleshooting
+
+- Installer logs: `/var/log/arch_usb/arch_usb.log`
+- Atomic update logs: `/var/log/atomic-updates.log`
+- I/O health: `/var/log/io-health.log`
+- Snapshot operations: `/persistent/snapshots/`
+
+Use `journalctl -xe` to inspect systemd journal messages and `tail -f` to follow specific logs.
+
+---
+
+If you want, I can add a short Quick Start section showing the exact sequence to create a bootable USB, partition, and run the installer in an end-to-end example.
