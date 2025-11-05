@@ -108,7 +108,14 @@ echo
 # Device selection
 while true; do
     print_msg "Please enter the target device path (e.g., /dev/sdX or /dev/nvme0n1):"
-    read -r DEVICE
+    if ! read -r DEVICE < /dev/tty; then
+        print_failed "Could not read from terminal. Aborting."
+        exit 1
+    fi
+    if [[ -z "$DEVICE" ]]; then
+        print_failed "Input cannot be empty. Please enter a device path."
+        continue
+    fi
     
     if [[ ! -b "$DEVICE" ]]; then
         print_failed "Error: $DEVICE is not a valid block device"
@@ -174,17 +181,28 @@ echo
 
 # Hostname
 print_msg "Enter system hostname (default: arch-gate):"
-read -r HOSTNAME
+if ! read -r HOSTNAME < /dev/tty; then
+    print_failed "Could not read from terminal. Aborting."
+    exit 1
+fi
 HOSTNAME="${HOSTNAME:-arch-gate}"
 CONFIG[hostname]="$HOSTNAME"
 
 # Root password
 while true; do
     print_msg "Enter root password (input hidden):"
-    read -r -s ROOT_PW
+    if ! read -r -s ROOT_PW < /dev/tty; then
+        echo
+        print_failed "Could not read from terminal. Aborting."
+        exit 1
+    fi
     echo
     print_msg "Confirm root password:"
-    read -r -s ROOT_PW_CONFIRM
+    if ! read -r -s ROOT_PW_CONFIRM < /dev/tty; then
+        echo
+        print_failed "Could not read from terminal. Aborting."
+        exit 1
+    fi
     echo
     if [[ "$ROOT_PW" == "$ROOT_PW_CONFIRM" && -n "$ROOT_PW" ]]; then
         #CONFIG[root_password]="$ROOT_PW"
@@ -199,21 +217,35 @@ done
 
 # Username
 print_msg "Enter username for regular user (default: user):"
-read -r USERNAME
+if ! read -r USERNAME < /dev/tty; then
+    print_failed "Could not read from terminal. Aborting."
+    exit 1
+fi
 USERNAME="${USERNAME:-user}"
 while [[ ! "$USERNAME" =~ ^[a-z_][a-z0-9_-]*$ ]]; do
     print_failed "Invalid username. Use only lowercase letters, numbers, - and _. Try again:"
-    read -r USERNAME
+    if ! read -r USERNAME < /dev/tty; then
+        print_failed "Could not read from terminal. Aborting."
+        exit 1
+    fi
 done
 CONFIG[username]="$USERNAME"
 
 # User password
 while true; do
     print_msg "Enter password for $USERNAME (input hidden):"
-    read -r -s USER_PW
+    if ! read -r -s USER_PW < /dev/tty; then
+        echo
+        print_failed "Could not read from terminal. Aborting."
+        exit 1
+    fi
     echo
     print_msg "Confirm password for $USERNAME:"
-    read -r -s USER_PW_CONFIRM
+    if ! read -r -s USER_PW_CONFIRM < /dev/tty; then
+        echo
+        print_failed "Could not read from terminal. Aborting."
+        exit 1
+    fi
     echo
     if [[ "$USER_PW" == "$USER_PW_CONFIRM" && -n "$USER_PW" ]]; then
         # CONFIG[user_password]="$USER_PW"
@@ -228,13 +260,19 @@ done
 
 # Timezone
 print_msg "Enter timezone (e.g., Asia/Tehran) (default: Asia/Tehran):"
-read -r TIMEZONE
+if ! read -r TIMEZONE < /dev/tty; then
+    print_failed "Could not read from terminal. Aborting."
+    exit 1
+fi
 TIMEZONE="${TIMEZONE:-Asia/Tehran}"
 CONFIG[timezone]="$TIMEZONE"
 
 # Locale
 print_msg "Enter locale (default: en_US.UTF-8):"
-read -r LOCALE
+if ! read -r LOCALE < /dev/tty; then
+    print_failed "Could not read from terminal. Aborting."
+    exit 1
+fi
 LOCALE="${LOCALE:-en_US.UTF-8}"
 CONFIG[locale]="$LOCALE"
 
@@ -328,7 +366,10 @@ echo "  - All personal files and backups"
 echo
 
 print_warn "To confirm, please type exactly: 'yes, format $DEVICE'"
-read -r confirmation_text
+if ! read -r confirmation_text < /dev/tty; then
+    print_failed "Could not read from terminal. Aborting."
+    exit 1
+fi
 
 if [[ "$confirmation_text" != "yes, format $DEVICE" ]]; then
     print_failed "Operation cancelled: Confirmation text does not match"

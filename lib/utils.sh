@@ -101,7 +101,11 @@ function banner() {
 }
 
 function wait_for_keypress() {
-    read -n1 -s -r -p "${RB}[${C}-${RB}]${G} Press any key to continue, CTRL+c to cancel...${NC}"
+    if ! read -n1 -s -r -p "${RB}[${C}-${RB}]${G} Press any key to continue, CTRL+c to cancel...${NC}" < /dev/tty; then
+        echo
+        print_failed "Could not read from terminal. Aborting."
+        exit 1
+    fi
     echo
 }
 
@@ -247,7 +251,7 @@ function confirmation_y_or_n() {
 
     while true; do
         print_msg "${prompt} (y/n)"
-        if ! IFS= read -r response; then
+        if ! IFS= read -r response < /dev/tty; then
             echo
             print_failed "Input aborted (EOF)"
             echo
@@ -353,7 +357,10 @@ function select_an_option() {
     local selection
     
     while true; do
-        read -r selection
+        if ! read -r selection < /dev/tty; then
+            print_failed "Input aborted (EOF)"
+            return 1
+        fi
         
         # If empty, use default
         if [[ -z "$selection" ]]; then
