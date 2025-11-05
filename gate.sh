@@ -6,12 +6,26 @@ set -euo pipefail
 # - Clones repo into /tmp/arch-gate
 # - Runs Stage 1 installer
 
-# Handle Ctrl+C
-trap 'echo -e "\n[INFO] Installation cancelled by user"; exit 1' INT
+# Enable proper interrupt handling
+trap cleanup_and_exit INT TERM EXIT
+set -o monitor
 
 REPO_URL="https://github.com/Neutron84/Arch_gate.git"
 WORKDIR_BASE="/tmp"
 WORKDIR="$WORKDIR_BASE/Arch-gate"
+
+cleanup_and_exit() {
+    local exit_code=$?
+    echo -e "\n[INFO] Cleaning up..."
+    if [[ -d "$WORKDIR" ]]; then
+        rm -rf "$WORKDIR"
+    fi
+    if [[ $1 == INT || $1 == TERM ]]; then
+        echo "[INFO] Installation cancelled by user"
+        exit 130
+    fi
+    exit $exit_code
+}
 
 info()  { echo "[INFO]  $*"; }
 success(){ echo "[OK]    $*"; }
@@ -40,7 +54,10 @@ prepare_workdir() {
 	mkdir -p "$WORKDIR_BASE"
 	if [[ -d "$WORKDIR" ]]; then
 		info "Removing previous workdir: $WORKDIR"
-		rm -rf "$WORKDIR"
+		rm -rf "$WORKDIR" || {
+			fail "Failed to remove previous workdir"
+			exit 1
+		}
 	fi
 }
 
@@ -54,14 +71,17 @@ run_stage1() {
 	local stage1="$WORKDIR/stages/stage1.sh"
 	if [[ ! -x "$stage1" ]]; then
 		if [[ -f "$stage1" ]]; then
-			chmod +x "$stage1"
+			chmod +x "$stage1" || {
+				fail "Failed to make stage1.sh executable"
+				exit 1
+			}
 		else
 			fail "stage1.sh not found at $stage1"
 			exit 1
 		fi
 	fi
 	info "Starting Stage 1 installer..."
-	"$stage1"
+	exec "$stage1"  # Use exec to properly handle signals
 }
 
 main() {

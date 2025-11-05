@@ -14,7 +14,13 @@ Quick start
 Run from a live Arch system (one-liner setup and run):
 
 ```bash
-curl -sL https://raw.githubusercontent.com/Neutron84/Arch_gate/refs/heads/main/gate.sh | sudo bash
+# Download and verify first
+curl -sL https://raw.githubusercontent.com/Neutron84/Arch_gate/refs/heads/main/gate.sh > /tmp/gate.sh && \
+chmod +x /tmp/gate.sh && \
+sudo /tmp/gate.sh
+
+# Or run directly with proper signal handling
+curl -sL https://raw.githubusercontent.com/Neutron84/Arch_gate/refs/heads/main/gate.sh | sudo bash -s -- --enable-interrupt
 ```
 
 This downloads and runs the lightweight launcher `gate.sh`, which clones the full project to `/tmp/arch-gate` and starts Stage 1.
