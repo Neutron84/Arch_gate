@@ -3,6 +3,10 @@
 # UTILITY FUNCTIONS
 # =============================================================================
 
+# Handle Ctrl+C and cleanup
+trap 'echo; print_failed "Script interrupted by user. Cleaning up..."; cleanup_on_exit; exit 1' INT TERM
+trap 'cleanup_on_exit' EXIT
+
 # Source required modules
 [[ -f "${0%/*}/colors.sh" ]] && source "${0%/*}/colors.sh"
 [[ -f "${0%/*}/logging.sh" ]] && source "${0%/*}/logging.sh"
@@ -250,6 +254,8 @@ function confirmation_y_or_n() {
     local prompt="$1"
     local varname="${2:-}"
     local response
+    local attempts=0
+    local max_attempts=3
 
     while true; do
         print_msg "${prompt} (y/n)"
@@ -257,30 +263,34 @@ function confirmation_y_or_n() {
             echo
             print_failed "Input aborted (EOF)"
             echo
-            return 1
+            exit 1
         fi
         
+        # Trim whitespace and convert to lowercase
         response="${response,,}"
         response="${response#"${response%%[![:space:]]*}"}"
         response="${response%"${response##*[![:space:]]}"}"
 
-        if [[ -z "$response" || "$response" =~ [[:space:]/] ]]; then
+        if [[ -z "$response" ]]; then
             echo
-            print_failed "Invalid input: no spaces or slashes allowed. Enter only 'y' or 'n'."
+            print_failed "Input cannot be empty. Enter y/Y/yes/YES or n/N/no/NO only."
             echo
-            continue
-        fi
-
-        case "$response" in
-            y|yes) response="y" ;;
-            n|no)  response="n" ;;
-            *) 
-                echo
-                print_failed "Invalid input. Please enter 'y', 'yes', 'n', or 'no'."
-                echo
-                continue
-                ;;
-        esac
+            ((attempts++))
+        elif [[ "$response" =~ [[:space:]] ]]; then
+            echo
+            print_failed "No spaces allowed. Enter y/Y/yes/YES or n/N/no/NO only."
+            echo
+            ((attempts++))
+        elif [[ ! "$response" =~ ^(y|yes|n|no)$ ]]; then
+            echo
+            print_failed "Invalid input: '$response'. Enter y/Y/yes/YES or n/N/no/NO only."
+            echo
+            ((attempts++))
+        else
+            case "$response" in
+                y|yes) response="y" ;;
+                n|no)  response="n" ;;
+            esac
 
         if [[ -n "$varname" ]]; then
             printf -v "$varname" '%s' "$response"
@@ -289,11 +299,20 @@ function confirmation_y_or_n() {
             fi
         fi
 
+        # Two-phase confirmation for 'yes' responses
         if [[ "$response" == "y" ]]; then
+            print_msg "Please confirm your choice. Type 'yes' again to proceed:"
+            local confirm
+            read -r confirm < /dev/tty
+            confirm="${confirm,,}"
+            if [[ "$confirm" != "yes" ]]; then
+                print_failed "Confirmation failed. Script will now exit for safety."
+                exit 1
+            fi
             echo
-            print_success "Continuing with answer: $response"
+            print_success "Action confirmed and proceeding"
             echo
-            log_debug "Confirmation: $prompt - response: $response"
+            log_debug "Confirmation: $prompt - response: $response (confirmed)"
             return 0
         else
             echo
@@ -354,30 +373,44 @@ function check_utf8_locale() {
 
 function select_an_option() {
     local max_option="$1"
-    local default_option="${2:-1}"
+    local default_option="${2:-}"  # Remove default of 1
     local varname="${3:-selection}"
     local selection
+    local attempts=0
+    local max_attempts=3
     
     while true; do
         if ! read -r selection < /dev/tty; then
             print_failed "Input aborted (EOF)"
-            return 1
+            exit 1  # Exit instead of return on interrupt
         fi
         
-        # If empty, use default
+        # Strict validation - no default value allowed
         if [[ -z "$selection" ]]; then
-            selection="$default_option"
-        fi
-        
-        # Validate selection
-        if [[ "$selection" =~ ^[0-9]+$ ]] && [[ "$selection" -ge 1 ]] && [[ "$selection" -le "$max_option" ]]; then
+            print_failed "Empty input is not allowed. Please make a selection."
+            ((attempts++))
+            echo
+        elif [[ ! "$selection" =~ ^[0-9]+$ ]]; then
+            print_failed "Invalid input: '$selection'. Numbers only."
+            ((attempts++))
+            echo
+        elif [[ ! "$selection" =~ ^[1-9][0-9]*$ ]] || [[ ! "$selection" -ge 1 ]] || [[ ! "$selection" -le "$max_option" ]]; then
+            print_failed "Invalid selection. Please enter a number between 1 and $max_option"
+            ((attempts++))
+            echo
+        else
+            # Valid input
             printf -v "$varname" '%s' "$selection"
             if declare -p CONFIG &>/dev/null && [[ "$(declare -p CONFIG)" == declare\ -A* ]]; then
                 CONFIG["$varname"]="$selection"
             fi
+            echo
             return 0
-        else
-            print_failed "Invalid selection. Please enter a number between 1 and $max_option:"
+        fi
+        
+        if ((attempts >= max_attempts)); then
+            print_failed "Too many invalid attempts. Script will now exit."
+            exit 1
         fi
     done
 }

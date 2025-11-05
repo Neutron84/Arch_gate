@@ -6,6 +6,9 @@ set -euo pipefail
 # - Clones repo into /tmp/arch-gate
 # - Runs Stage 1 installer
 
+# Handle Ctrl+C
+trap 'echo -e "\n[INFO] Installation cancelled by user"; exit 1' INT
+
 REPO_URL="https://github.com/Neutron84/Arch_gate.git"
 WORKDIR_BASE="/tmp"
 WORKDIR="$WORKDIR_BASE/Arch-gate"

@@ -2,7 +2,7 @@
 # =============================================================================
 # COLOR DEFINITION SYSTEM
 # =============================================================================
-
+: <<'IGNORE'
 if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
     ncolors=$(tput colors 2>/dev/null || echo 0)
     if [ -n "$ncolors" ] && [ "$ncolors" -ge 8 ]; then
@@ -42,9 +42,9 @@ else
     RB="" GB="" BB="" YB="" PB="" CB="" WB="" BLACKB=""
     BOLD="" NC=""
 fi
-
+IGNORE
 # =============================================================================
-: <<'IGNORE'
+
 if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
     ncolors=$(tput colors 2>/dev/null || echo 0)
     if [ -n "$ncolors" ] && [ "$ncolors" -ge 8 ]; then
@@ -88,4 +88,3 @@ else
 fi
 
 
-IGNORE
