@@ -1,13 +1,28 @@
-# Arch Linux USB — User Manual (English)
+# Arch Gate — User Manual (English)
 
-This manual documents the tools, services and workflows included in the Arch Linux USB installer and runtime image. It is intended as a concise reference for operators installing and maintaining the USB-based Arch system provided by this project.
+This manual documents the tools, services and workflows included in the Arch Gate installer and runtime image. It is intended as a concise reference for installing and maintaining systems on internal storage (SSD/HDD) or portable media (USB/SD) with hybrid boot.
 
 Table of contents
+- Stage 1/2 Flow & System Types
 - Safety & Recovery
 - Atomic Update System
+- Overlay Root (Squashfs/EROFS) & Home Persistence
 - Advanced Optimizations
 - Package Management & Cache Cleaning
 - Kernel & Driver Notes
+
+---
+
+## Stage 1/2 Flow & System Types
+
+During Stage 1 (live environment), Arch Gate asks for the target device and system type:
+
+- Real systems (internal): `ssd`, `hdd`
+- Portable systems (hybrid boot): `ssd_external`, `hdd_external`, `usb_memory`, `sdcard`
+
+Stage 1 performs partitioning, formatting, mounting, and a minimal system install in a persistent root (e.g. `/mnt/usb/persistent/arch_root`), then hands off to Stage 2 via a systemd oneshot service inside the installed system.
+
+Stage 2 completes configuration and integrates advanced modules: overlay root, atomic updates, safety & recovery, memory optimization, advanced optimizations, and GRUB hybrid boot where applicable.
 
 ---
 
@@ -126,6 +141,18 @@ Notes
 
 ---
 
+## Overlay Root (Squashfs/EROFS) & Home Persistence
+
+Arch Gate uses an overlay root design for portable targets:
+
+- Root: Read-only Squashfs or EROFS image at `/persistent/arch/root.squashfs`
+- Upper/work: tmpfs overlay for writable runtime
+- Home and persistent data: `/persistent/home` is kept on the main partition and linked to `/home`
+
+Initialization is handled by an `overlay` mkinitcpio hook. EROFS is preferred (with LZ4HC) when supported; otherwise Squashfs (ZSTD) is used.
+
+---
+
 ## Advanced Optimizations
 
 This section lists optional services and helpers that are installed in the runtime image.
@@ -175,7 +202,7 @@ systemctl status smart-prefetch.timer
 
 To minimize used space on removable media the installer includes automatic cache management.
 
-Configuration variables (set these in the environment or edit the top of `usb_arch.sh`):
+Configuration variables (for cache policy are applied during install and within runtime tools):
 
 - AUTO_CLEAN_CACHE=true|false — enable or disable automatic cleaning (default: true)
 - CACHE_CLEAN_STRATEGY=immediate|batch|smart — cleaning strategy (default: immediate)
@@ -247,7 +274,7 @@ The system ships with multiple boot menu entries (automatic profile selection, l
 
 ## Logging and troubleshooting
 
-- Installer logs: `/var/log/arch_usb/arch_usb.log`
+- Installer logs: `/var/log/archgate/stage2.log` (Stage 2) and project logs in `/var/log/arch_usb/arch_usb.log` when applicable
 - Atomic update logs: `/var/log/atomic-updates.log`
 - I/O health: `/var/log/io-health.log`
 - Snapshot operations: `/persistent/snapshots/`

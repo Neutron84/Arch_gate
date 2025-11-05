@@ -1,23 +1,39 @@
-# Arch_USB — Bootable Arch Linux USB installer and runtime
+# Arch Gate — Universal Arch Linux Installer and Runtime
 
-This repository contains a feature-rich Arch Linux USB installer/runtime image builder and a set of helper tools that run on the installed USB system.
+This repository contains a feature-rich Arch Linux installer/runtime that supports both real systems (internal SSD/HDD) and portable media (USB/SD) with hybrid boot. It includes overlay root, atomic updates, safety & recovery, and advanced optimizations.
 
 What this repo provides
-- `usb_arch.sh` — the main installer script (download and run on a live Arch environment).
+- `gate.sh` — lightweight launcher (downloads repo and starts Stage 1).
+- `archgate/stages/stage1.sh` — interactive configuration (system type, device, partitioning, minimal install).
+- `archgate/stages/stage2.sh` — completes configuration inside the installed system and integrates advanced modules.
+- `archgate/lib/*.sh` — feature modules (overlay, atomic-update, safety, memory, optimizations, grub advanced).
 - `MANUAL.md` — user manual and reference for runtime services.
-- Atomic update tools, snapshotting, and safety helpers installed on the target system.
 
 Quick start
 
-Run the installer from a live Arch system (this will download the latest `usb_arch.sh` from the repository and run it):
+Run from a live Arch system (one-liner setup and run):
 
 ```bash
-curl -Lf https://raw.githubusercontent.com/Neutron84/Arch_USB/main/usb_arch.sh -o usb_arch.sh && chmod +x usb_arch.sh && ./usb_arch.sh
+curl -sL https://raw.githubusercontent.com/Neutron84/Arch_gate/main/gate.sh | sudo bash
 ```
 
+This downloads and runs the lightweight launcher `gate.sh`, which clones the full project to `/tmp/arch-gate` and starts Stage 1.
+
+Stage 1 highlights
+- Choose system type: `ssd`, `hdd`, `ssd_external`, `hdd_external`, `usb_memory`, `sdcard`.
+- Partition scheme: Hybrid (recommended for portable), GPT, or MBR.
+- Filesystem: `bcachefs` (recommended), `ext4`, or `f2fs`.
+
+Stage 2 highlights
+- Configures overlay root (EROFS/Squashfs) and persistent `/home`.
+- Enables atomic update system with rollback and integrity checks.
+- Installs safety services (I/O health, enforced sync, snapshots, telemetry, power-failure detector).
+- Tunes memory (ZRAM/ZSWAP) and applies advanced optimizations (bcachefs, prefetch, hardware profile, I/O optimizer).
+- Installs GRUB hybrid for portable systems and writes advanced boot menus.
+
 Important notes
-- This script performs destructive operations (drive partitioning, filesystem creation). Make sure you run it on the intended device and have backups of any important data.
-- The installer and runtime are designed for removable media (USB) and employ atomic updates (read-only root images) to reduce the chance of leaving the system in an unbootable state after interrupted updates.
+- This script performs destructive operations (drive partitioning, filesystem creation). Ensure you target the correct device and have backups.
+- Portable targets use hybrid boot and overlay root with read-only images to improve robustness.
 
 Package cache cleaning (space-saving behavior)
 
@@ -42,8 +58,8 @@ export CACHE_CLEAN_STRATEGY=smart
 ```
 
 Where to read more
-- Full manual & reference: `MANUAL.md` (includes atomic update commands, services, and troubleshooting).
-- The installer writes logs to `/var/log/arch_usb/arch_usb.log` on the live environment and the installed system.
+- Full manual & reference: `MANUAL.md` (includes atomic update commands, services, overlay details, and troubleshooting).
+- Logs: Stage 2 `/var/log/archgate/stage2.log`, atomic updates `/var/log/atomic-updates.log`.
 
 Security & safety checklist
 - Double-check the target device before running the installer (use `lsblk` and `blkid`).
