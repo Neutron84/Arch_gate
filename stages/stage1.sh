@@ -13,24 +13,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARCHGATE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Source all required modules
-source "$ARCHGATE_DIR/archgate/lib/colors.sh"
-source "$ARCHGATE_DIR/archgate/lib/logging.sh"
-source "$ARCHGATE_DIR/archgate/lib/utils.sh"
-source "$ARCHGATE_DIR/archgate/lib/packages.sh"
-source "$ARCHGATE_DIR/archgate/lib/partition.sh"
-source "$ARCHGATE_DIR/archgate/lib/config.sh"
+source "$ARCHGATE_DIR/lib/colors.sh"
+source "$ARCHGATE_DIR/lib/logging.sh"
+source "$ARCHGATE_DIR/lib/utils.sh"
+source "$ARCHGATE_DIR/lib/packages.sh"
+source "$ARCHGATE_DIR/lib/partition.sh"
+source "$ARCHGATE_DIR/lib/config.sh"
 
 # Source feature modules (conditional loading based on system type)
-source "$ARCHGATE_DIR/archgate/lib/overlay.sh"
-source "$ARCHGATE_DIR/archgate/lib/atomic-update.sh"
-source "$ARCHGATE_DIR/archgate/lib/safety.sh"
-source "$ARCHGATE_DIR/archgate/lib/memory.sh"
-source "$ARCHGATE_DIR/archgate/lib/optimizations.sh"
-source "$ARCHGATE_DIR/archgate/lib/grub-advanced.sh"
+source "$ARCHGATE_DIR/lib/overlay.sh"
+source "$ARCHGATE_DIR/lib/atomic-update.sh"
+source "$ARCHGATE_DIR/lib/safety.sh"
+source "$ARCHGATE_DIR/lib/memory.sh"
+source "$ARCHGATE_DIR/lib/optimizations.sh"
+source "$ARCHGATE_DIR/lib/grub-advanced.sh"
 
 # Source system-specific modules
-if [[ -f "$ARCHGATE_DIR/archgate/systems/usb_memory/check-usb-health.sh" ]]; then
-    source "$ARCHGATE_DIR/archgate/systems/usb_memory/check-usb-health.sh"
+if [[ -f "$ARCHGATE_DIR/systems/usb_memory/check-usb-health.sh" ]]; then
+    source "$ARCHGATE_DIR/systems/usb_memory/check-usb-health.sh"
 fi
 
 # Initialize
