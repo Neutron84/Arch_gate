@@ -14,7 +14,7 @@ Quick start
 Run from a live Arch system (one-liner setup and run):
 
 ```bash
-curl -sL https://raw.githubusercontent.com/Neutron84/Arch_gate/main/gate.sh | sudo bash
+curl -sL https://raw.githubusercontent.com/Neutron84/Arch_gate/refs/heads/main/gate.sh | sudo bash
 ```
 
 This downloads and runs the lightweight launcher `gate.sh`, which clones the full project to `/tmp/arch-gate` and starts Stage 1.
@@ -67,6 +67,7 @@ Security & safety checklist
 
 Contributing
 - If you'd like to contribute, open issues or PRs against this repo. Please run `shellcheck` on any bash patches you submit.
+
 
 
 
