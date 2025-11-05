@@ -163,7 +163,8 @@ print_log_console() {
     local reset="${NC}"
 
     if [ -t 1 ]; then
-        printf '%b%s%b\n' "${color_prefix}" "${msg}" "${reset}"
+        # Use %b for the message to interpret embedded escapes (e.g., \033[1m)
+        printf '%b%b%b\n' "${color_prefix}" "${msg}" "${reset}"
     else
         printf '%s\n' "$msg"
     fi

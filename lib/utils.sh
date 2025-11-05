@@ -101,7 +101,9 @@ function banner() {
 }
 
 function wait_for_keypress() {
-    if ! read -n1 -s -r -p "${RB}[${C}-${RB}]${G} Press any key to continue, CTRL+c to cancel...${NC}" < /dev/tty; then
+    # Print colored prompt with escape interpretation, then read a single key
+    printf '%b' "${RB}[${C}-${RB}]${G} Press any key to continue, CTRL+c to cancel...${NC}" > /dev/tty
+    if ! read -n1 -s -r < /dev/tty; then
         echo
         print_failed "Could not read from terminal. Aborting."
         exit 1
