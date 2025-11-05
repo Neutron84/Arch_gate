@@ -37,7 +37,7 @@ Important notes
 
 Package cache cleaning (space-saving behavior)
 
-To keep the USB image small the installer includes automatic package cache management. You can configure behavior by setting environment variables before running the installer or editing the top of `usb_arch.sh`:
+To keep the USB image small the installer includes automatic package cache management. You can configure behavior by setting environment variables before running the installer or editing the top of `/lib/packages.sh`:
 
 - `AUTO_CLEAN_CACHE` (default: `true`) — enable/disable automatic cache cleaning.
 - `CACHE_CLEAN_STRATEGY` (default: `immediate`) — `immediate|batch|smart`.
@@ -67,5 +67,6 @@ Security & safety checklist
 
 Contributing
 - If you'd like to contribute, open issues or PRs against this repo. Please run `shellcheck` on any bash patches you submit.
+
 
 
