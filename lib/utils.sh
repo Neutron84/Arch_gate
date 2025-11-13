@@ -520,6 +520,116 @@ function extract_archive() {
     log_debug "Extracted: $archive"
 }
 
+#########################
+# Atomic config helpers #
+#########################
+
+atomic_config_save() {
+    local config_file="$1"
+    local config_data="$2"
+    if [[ -z "$config_file" ]]; then
+        print_failed "atomic_config_save: config file path required"
+        return 1
+    fi
+
+    local lock_file="${config_file}.lock"
+    local tmp_file="${config_file}.tmp.$$"
+
+    # Try to acquire lock by creating lock file atomically
+    if ! ( set -C; echo "$$" >"$lock_file" ) 2>/dev/null; then
+        local lock_pid
+        lock_pid=$(cat "$lock_file" 2>/dev/null || echo "")
+        if [[ -n "$lock_pid" ]] && kill -0 "$lock_pid" 2>/dev/null; then
+            print_failed "Config file is locked by process $lock_pid"
+            return 2
+        else
+            # Stale lock: remove and retry
+            rm -f "$lock_file" 2>/dev/null || true
+            if ! ( set -C; echo "$$" >"$lock_file" ) 2>/dev/null; then
+                print_failed "atomic_config_save: failed to acquire lock"
+                return 3
+            fi
+        fi
+    fi
+
+    # Ensure we remove lock on exit of this function
+    local _cleanup_lock
+    _cleanup_lock() { rm -f "$lock_file" 2>/dev/null || true; }
+    trap '_cleanup_lock' RETURN
+
+    # Write data to temp file
+    printf '%s\n' "$config_data" >"$tmp_file" || { print_failed "Failed to write temp config"; return 4; }
+
+    # Basic syntax check: use bash -n to validate shell syntax
+    if ! bash -n "$tmp_file" 2>/dev/null; then
+        rm -f "$tmp_file" "$lock_file" 2>/dev/null || true
+        print_failed "Config syntax validation failed"
+        return 5
+    fi
+
+    # Atomic move
+    if mv -f "$tmp_file" "$config_file"; then
+        _cleanup_lock
+        trap - RETURN
+        return 0
+    else
+        rm -f "$tmp_file" "$lock_file" 2>/dev/null || true
+        trap - RETURN
+        print_failed "atomic_config_save: mv failed"
+        return 6
+    fi
+}
+
+validate_config() {
+    local config_file="$1"
+    if [[ -z "$config_file" ]]; then
+        print_failed "validate_config: config file path required"
+        return 1
+    fi
+
+    if [[ ! -f "$config_file" ]]; then
+        print_failed "Config file not found: $config_file"
+        return 2
+    fi
+
+    # Source in a subshell to avoid polluting current environment
+    if ! ( set -o nounset; set -o errexit; source "$config_file" >/dev/null 2>&1 ); then
+        print_failed "Config file has syntax errors"
+        return 3
+    fi
+
+    # Now try to obtain required vars without sourcing into current shell
+    local DEVICE HOSTNAME FILESYSTEM_TYPE
+    DEVICE=$(awk -F= '/^\s*DEVICE\s*=/{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2; exit}' "$config_file" | tr -d '"') || true
+    HOSTNAME=$(awk -F= '/^\s*HOSTNAME\s*=/{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2; exit}' "$config_file" | tr -d '"') || true
+    FILESYSTEM_TYPE=$(awk -F= '/^\s*FILESYSTEM_TYPE\s*=/{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2; exit}' "$config_file" | tr -d '"') || true
+
+    # Fallback: if any missing, source in subshell and print
+    if [[ -z "$DEVICE" || -z "$HOSTNAME" || -z "$FILESYSTEM_TYPE" ]]; then
+        # Fallback: source in a clean subshell and print variables
+        read -r DEVICE HOSTNAME FILESYSTEM_TYPE < <(bash -c "source '$config_file' >/dev/null 2>&1; printf '%s\n%s\n%s' \"\$DEVICE\" \"\$HOSTNAME\" \"\$FILESYSTEM_TYPE\"") || true
+    fi
+
+    # Validate required variables
+    local required_vars=("DEVICE" "HOSTNAME" "FILESYSTEM_TYPE")
+    for var in "${required_vars[@]}"; do
+        local val
+        val=${!var}
+        if [[ -z "$val" ]]; then
+            print_failed "Required config variable not set: $var"
+            return 4
+        fi
+    done
+
+    # Validate device is block device
+    if [[ -n "$DEVICE" ]] && [[ ! -b "$DEVICE" ]]; then
+        print_failed "Invalid block device: $DEVICE"
+        return 5
+    fi
+
+    return 0
+}
+
 function download_and_extract() {
     local url="$1"
     local target_dir="$2"
