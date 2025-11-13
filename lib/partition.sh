@@ -110,6 +110,11 @@ create_partitions() {
     local storage_type="$2"
     local partition_scheme="${3:-hybrid}"
     
+    # Check disk space before creating partitions
+    if ! check_disk_space "$device" 5; then
+        return 1
+    fi
+    
     print_msg "Creating partitions for $storage_type..."
     
     case "$storage_type" in
@@ -314,21 +319,226 @@ format_partitions() {
     return 0
 }
 
+# Check if device has sufficient space
+check_disk_space() {
+    local device="$1"
+    local required_space_gb="${2:-5}"  # Default 5GB
+    local required_space_bytes=$((required_space_gb * 1024 * 1024 * 1024))
+    
+    # Check if device exists
+    if [[ ! -b "$device" ]]; then
+        print_failed "Device $device does not exist or is not a block device"
+        return 1
+    fi
+    
+    # Get device size
+    local device_size
+    if command -v blockdev &>/dev/null; then
+        device_size=$(blockdev --getsize64 "$device" 2>/dev/null || echo "0")
+    elif command -v lsblk &>/dev/null; then
+        device_size=$(lsblk -b -d -n -o SIZE "$device" 2>/dev/null | head -n1 || echo "0")
+    else
+        print_warn "Cannot determine device size (blockdev/lsblk not available)"
+        return 0  # Continue anyway
+    fi
+    
+    if [[ -z "$device_size" ]] || [[ "$device_size" == "0" ]]; then
+        print_warn "Could not determine device size, skipping space check"
+        return 0
+    fi
+    
+    local available_gb=$((device_size / 1024 / 1024 / 1024))
+    
+    if [[ $device_size -lt $required_space_bytes ]]; then
+        print_failed "Insufficient disk space on $device"
+        print_failed "Required: ${required_space_gb}GB, Available: ${available_gb}GB"
+        return 1
+    fi
+    
+    print_success "Disk space check passed: ${available_gb}GB available"
+    return 0
+}
+
+# Detect partitions using lsblk (more reliable method)
+detect_partitions() {
+    local device="$1"
+    local -A partitions
+    
+    if [[ ! -b "$device" ]]; then
+        print_failed "Device $device is not a valid block device"
+        return 1
+    fi
+    
+    # Use lsblk to detect all partitions under the device
+    local device_base="${device##*/}"
+    local part_name part_path part_num
+    
+    # Get all block devices and filter for partitions of this device
+    # lsblk -r gives raw output, -o NAME gives just names
+    while IFS= read -r line; do
+        # Skip empty lines and the device itself
+        [[ -z "$line" ]] && continue
+        [[ "$line" == "$device_base" ]] && continue
+        
+        # Check if this is a partition (child of the device)
+        # Format: device_base + optional 'p' + number (e.g., sda1, nvme0n1p2)
+        if [[ "$line" =~ ^${device_base}(p)?([0-9]+)$ ]]; then
+            part_name="$line"
+            part_num="${BASH_REMATCH[2]}"
+            part_path="/dev/$part_name"
+            
+            # Verify partition exists as block device
+            if [[ -b "$part_path" ]]; then
+                partitions[$part_num]="$part_path"
+            fi
+        fi
+    done < <(lsblk -r -n -o NAME 2>/dev/null | grep -E "^${device_base}(p)?[0-9]+$" || true)
+    
+    # If no partitions found with lsblk, try alternative method
+    if [[ ${#partitions[@]} -eq 0 ]]; then
+        # Try to find partitions by checking common patterns
+        local i
+        for i in {1..9}; do
+            # Try nvme style first
+            if [[ -b "${device}p${i}" ]]; then
+                partitions[$i]="${device}p${i}"
+            # Try sd style
+            elif [[ -b "${device}${i}" ]]; then
+                partitions[$i]="${device}${i}"
+            fi
+        done
+    fi
+    
+    # Output partitions as sorted array
+    local result=()
+    local sorted_keys
+    sorted_keys=$(printf '%s\n' "${!partitions[@]}" | sort -n 2>/dev/null || echo "")
+    
+    if [[ -n "$sorted_keys" ]]; then
+        while IFS= read -r key; do
+            [[ -n "$key" ]] && [[ -n "${partitions[$key]:-}" ]] && result+=("${partitions[$key]}")
+        done <<< "$sorted_keys"
+    fi
+    
+    printf '%s\n' "${result[@]}"
+    return 0
+}
+
+# Mount with retry capability
+mount_with_retry() {
+    local device="$1"
+    local mount_point="$2"
+    local max_attempts="${3:-3}"
+    local attempt=1
+    local mount_output
+    
+    if [[ ! -b "$device" ]]; then
+        print_failed "Device $device is not a valid block device"
+        return 1
+    fi
+    
+    if [[ ! -d "$mount_point" ]]; then
+        print_failed "Mount point $mount_point is not a directory"
+        return 1
+    fi
+    
+    while [[ $attempt -le $max_attempts ]]; do
+        # Try to mount
+        mount_output=$(mount "$device" "$mount_point" 2>&1)
+        local mount_exit_code=$?
+        
+        if [[ $mount_exit_code -eq 0 ]]; then
+            # Verify mount was successful
+            if mountpoint -q "$mount_point" 2>/dev/null; then
+                if [[ $attempt -gt 1 ]]; then
+                    print_success "Successfully mounted $device to $mount_point (attempt $attempt)"
+                fi
+                return 0
+            else
+                print_warn "Mount command succeeded but mountpoint verification failed (attempt $attempt/$max_attempts)"
+            fi
+        else
+            if [[ $attempt -lt $max_attempts ]]; then
+                print_warn "Mount attempt $attempt/$max_attempts failed: $mount_output"
+                print_msg "Retrying in 2 seconds..."
+                sleep 2
+                sync
+            else
+                print_failed "Failed to mount $device to $mount_point after $max_attempts attempts"
+                print_failed "Last error: $mount_output"
+            fi
+        fi
+        
+        ((attempt++))
+    done
+    
+    return 1
+}
+
 # Mount partitions
 mount_partitions() {
     local device="$1"
     local mount_point="${2:-/mnt/usb}"
     
-    print_msg "Detecting partition paths..."
-    local part_esp part_main
-    
-    part_esp=$(get_part_path "$device" 2 2>/dev/null || get_part_path "$device" 1 2>/dev/null)
-    part_main=$(get_part_path "$device" 3 2>/dev/null || get_part_path "$device" 2 2>/dev/null)
-    
-    if [[ -z "$part_esp" || -z "$part_main" ]]; then
-        print_failed "Failed to detect partition paths"
+    # Check if device exists
+    if [[ ! -b "$device" ]]; then
+        print_failed "Device $device does not exist or is not a block device"
         return 1
     fi
+    
+    # Check disk space before proceeding
+    if ! check_disk_space "$device" 5; then
+        return 1
+    fi
+    
+    print_msg "Detecting partition paths..."
+    local part_esp part_main
+    local detected_parts
+    
+    # Use improved detection method
+    detected_parts=($(detect_partitions "$device" 2>/dev/null))
+    
+    if [[ ${#detected_parts[@]} -eq 0 ]]; then
+        # Fallback to get_part_path
+        part_esp=$(get_part_path "$device" 2 2>/dev/null || get_part_path "$device" 1 2>/dev/null)
+        part_main=$(get_part_path "$device" 3 2>/dev/null || get_part_path "$device" 2 2>/dev/null)
+    else
+        # Use detected partitions
+        # For hybrid: ESP is usually partition 2, main is partition 3
+        # For standard: ESP is usually partition 1, main is partition 2
+        if [[ ${#detected_parts[@]} -ge 3 ]]; then
+            # Hybrid layout (3+ partitions)
+            part_esp="${detected_parts[1]}"  # Index 1 = partition 2
+            part_main="${detected_parts[2]}" # Index 2 = partition 3
+        elif [[ ${#detected_parts[@]} -ge 2 ]]; then
+            # Standard layout (2 partitions)
+            part_esp="${detected_parts[0]}"  # Index 0 = partition 1
+            part_main="${detected_parts[1]}" # Index 1 = partition 2
+        else
+            print_failed "Not enough partitions detected (found ${#detected_parts[@]}, need at least 2)"
+            return 1
+        fi
+    fi
+    
+    if [[ -z "$part_esp" ]] || [[ -z "$part_main" ]]; then
+        print_failed "Failed to detect partition paths"
+        print_msg "Detected partitions: ${detected_parts[*]}"
+        return 1
+    fi
+    
+    # Verify partitions exist
+    if [[ ! -b "$part_esp" ]]; then
+        print_failed "ESP partition $part_esp does not exist"
+        return 1
+    fi
+    
+    if [[ ! -b "$part_main" ]]; then
+        print_failed "Main partition $part_main does not exist"
+        return 1
+    fi
+    
+    print_success "ESP Partition: $part_esp"
+    print_success "Main Partition: $part_main"
     
     print_msg "Mounting partitions..."
 
@@ -378,30 +588,21 @@ mount_partitions() {
     sync
     sleep 1
 
-    # Mount ESP with retry and captured output for debugging
-    local out
-    out=$(mount "$part_esp" "$mount_point" 2>&1) || true
-    if [[ $? -ne 0 ]]; then
-        print_msg "Retrying mount in 3 seconds..."
-        sleep 3
-        sync
-        out=$(mount "$part_esp" "$mount_point" 2>&1) || true
-        if [[ $? -ne 0 ]]; then
-            print_failed "Failed to mount ESP partition: $part_esp to $mount_point"
-            print_msg "Mount output: $out"
-            return 1
-        fi
+    # Mount ESP partition with retry
+    if ! mount_with_retry "$part_esp" "$mount_point" 3; then
+        print_failed "Failed to mount ESP partition: $part_esp to $mount_point"
+        return 1
     fi
+    print_success "ESP partition mounted"
 
-    # Mount main partition
-    out=$(mount "$part_main" "$persistent_dir" 2>&1) || true
-    if [[ $? -ne 0 ]]; then
+    # Mount main partition with retry
+    if ! mount_with_retry "$part_main" "$persistent_dir" 3; then
         print_failed "Failed to mount main partition: $part_main to $persistent_dir"
-        print_msg "Mount output: $out"
-        print_msg "Trying to unmount ESP and retry..."
+        print_msg "Unmounting ESP partition..."
         umount "$mount_point" 2>/dev/null || true
         return 1
     fi
+    print_success "Main partition mounted"
 
     print_success "Partitions mounted successfully"
     print_msg "ESP: $mount_point"
