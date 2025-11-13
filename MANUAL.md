@@ -281,6 +281,3 @@ The system ships with multiple boot menu entries (automatic profile selection, l
 
 Use `journalctl -xe` to inspect systemd journal messages and `tail -f` to follow specific logs.
 
----
-
-If you want, I can add a short Quick Start section showing the exact sequence to create a bootable USB, partition, and run the installer in an end-to-end example.

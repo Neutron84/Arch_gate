@@ -7,9 +7,10 @@
 trap 'echo; print_failed "Script interrupted by user. Cleaning up..."; cleanup_on_exit; exit 1' INT TERM
 trap 'cleanup_on_exit' EXIT
 
-# Source required modules
-[[ -f "${0%/*}/colors.sh" ]] && source "${0%/*}/colors.sh"
-[[ -f "${0%/*}/logging.sh" ]] && source "${0%/*}/logging.sh"
+# Source required modules (use BASH_SOURCE for reliable path when sourced)
+_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${0}}")" && pwd)"
+[[ -f "$_LIB_DIR/colors.sh" ]] && source "$_LIB_DIR/colors.sh"
+[[ -f "$_LIB_DIR/logging.sh" ]] && source "$_LIB_DIR/logging.sh"
 
 # Helper function to get partition paths safely (supports sdX and nvmeX)
 get_part_path() {
@@ -253,18 +254,18 @@ function download_file() {
 function confirmation_y_or_n() {
     local prompt="$1"
     local varname="${2:-}"
+    local require_double_confirm="${3:-false}"  # Third parameter to control double confirmation
     local response
     local attempts=0
     local max_attempts=3
 
     while true; do
-        print_msg "${prompt} (y/n)"
-        if ! IFS= read -r response < /dev/tty; then
+        if ! read -p "${prompt} (y/n): " -r response </dev/tty; then
             echo
             print_failed "Input aborted (EOF)"
-            echo
             exit 1
         fi
+        echo
         
         # Trim whitespace and convert to lowercase
         response="${response,,}"
@@ -272,19 +273,13 @@ function confirmation_y_or_n() {
         response="${response%"${response##*[![:space:]]}"}"
 
         if [[ -z "$response" ]]; then
-            echo
             print_failed "Input cannot be empty. Enter y/Y/yes/YES or n/N/no/NO only."
-            echo
             ((attempts++))
         elif [[ "$response" =~ [[:space:]] ]]; then
-            echo
             print_failed "No spaces allowed. Enter y/Y/yes/YES or n/N/no/NO only."
-            echo
             ((attempts++))
         elif [[ ! "$response" =~ ^(y|yes|n|no)$ ]]; then
-            echo
             print_failed "Invalid input: '$response'. Enter y/Y/yes/YES or n/N/no/NO only."
-            echo
             ((attempts++))
         else
             case "$response" in
@@ -292,34 +287,42 @@ function confirmation_y_or_n() {
                 n|no)  response="n" ;;
             esac
 
-        if [[ -n "$varname" ]]; then
-            printf -v "$varname" '%s' "$response"
-            if declare -p CONFIG &>/dev/null && [[ "$(declare -p CONFIG)" == declare\ -A* ]]; then
-                CONFIG["$varname"]="$response"
+            if [[ -n "$varname" ]]; then
+                printf -v "$varname" '%s' "$response"
+                if declare -p CONFIG &>/dev/null && [[ "$(declare -p CONFIG)" == declare\ -A* ]]; then
+                    CONFIG["$varname"]="$response"
+                fi
+            fi
+
+            # Two-phase confirmation only if required (for destructive operations)
+            if [[ "$response" == "y" ]] && [[ "$require_double_confirm" == "true" ]]; then
+                if ! read -p "Please confirm your choice. Type 'yes' again to proceed: " -r confirm </dev/tty; then
+                    echo
+                    print_failed "Confirmation aborted"
+                    exit 1
+                fi
+                echo
+                confirm="${confirm,,}"
+                if [[ "$confirm" != "yes" ]]; then
+                    print_failed "Confirmation failed. Script will now exit for safety."
+                    exit 1
+                fi
+                print_success "Action confirmed and proceeding"
+                log_debug "Confirmation: $prompt - response: $response (confirmed)"
+                return 0
+            elif [[ "$response" == "y" ]]; then
+                log_debug "Confirmation: $prompt - response: $response"
+                return 0
+            else
+                print_msg "${C}Skipping this step${NC}"
+                log_debug "Confirmation: $prompt - response: $response"
+                return 1
             fi
         fi
-
-        # Two-phase confirmation for 'yes' responses
-        if [[ "$response" == "y" ]]; then
-            print_msg "Please confirm your choice. Type 'yes' again to proceed:"
-            local confirm
-            read -r confirm < /dev/tty
-            confirm="${confirm,,}"
-            if [[ "$confirm" != "yes" ]]; then
-                print_failed "Confirmation failed. Script will now exit for safety."
-                exit 1
-            fi
-            echo
-            print_success "Action confirmed and proceeding"
-            echo
-            log_debug "Confirmation: $prompt - response: $response (confirmed)"
-            return 0
-        else
-            echo
-            print_msg "${C}Skipping this step${NC}"
-            echo
-            log_debug "Confirmation: $prompt - response: $response"
-            return 1
+        
+        if ((attempts >= max_attempts)); then
+            print_failed "Too many invalid attempts. Script will now exit."
+            exit 1
         fi
     done
 }
@@ -352,9 +355,11 @@ function create_pre_install_snapshot() {
 }
 
 function cleanup_on_exit() {
-    print_msg "Cleaning up..."
-    umount -R /mnt/usb 2>/dev/null || true
-    rm -f /tmp/arch-install-* 2>/dev/null || true
+    if [[ "${CLEANUP_REQUIRED:-false}" == "true" ]]; then
+        print_msg "Cleaning up..."
+        umount -R /mnt/usb 2>/dev/null || true
+        rm -f /tmp/arch-install-* 2>/dev/null || true
+    fi
 }
 
 function check_utf8_locale() {
@@ -373,38 +378,48 @@ function check_utf8_locale() {
 
 function select_an_option() {
     local max_option="$1"
-    local default_option="${2:-}"  # Remove default of 1
+    local default_option="${2:-}"
     local varname="${3:-selection}"
     local selection
     local attempts=0
     local max_attempts=3
     
     while true; do
-        if ! read -r selection < /dev/tty; then
+        if ! read -p "Enter your choice [1-$max_option]: " -r selection </dev/tty; then
+            echo
             print_failed "Input aborted (EOF)"
-            exit 1  # Exit instead of return on interrupt
+            exit 1
+        fi
+        echo
+        
+        # Handle empty input with default
+        if [[ -z "$selection" ]]; then
+            if [[ -n "$default_option" ]]; then
+                selection="$default_option"
+            else
+                print_failed "Empty input is not allowed. Please make a selection."
+                ((attempts++))
+                if ((attempts >= max_attempts)); then
+                    print_failed "Too many invalid attempts. Script will now exit."
+                    exit 1
+                fi
+                continue
+            fi
         fi
         
-        # Strict validation - no default value allowed
-        if [[ -z "$selection" ]]; then
-            print_failed "Empty input is not allowed. Please make a selection."
-            ((attempts++))
-            echo
-        elif [[ ! "$selection" =~ ^[0-9]+$ ]]; then
+        # Validate numeric input
+        if [[ ! "$selection" =~ ^[0-9]+$ ]]; then
             print_failed "Invalid input: '$selection'. Numbers only."
             ((attempts++))
-            echo
-        elif [[ ! "$selection" =~ ^[1-9][0-9]*$ ]] || [[ ! "$selection" -ge 1 ]] || [[ ! "$selection" -le "$max_option" ]]; then
+        elif [[ "$selection" -lt 1 ]] || [[ "$selection" -gt "$max_option" ]]; then
             print_failed "Invalid selection. Please enter a number between 1 and $max_option"
             ((attempts++))
-            echo
         else
             # Valid input
             printf -v "$varname" '%s' "$selection"
             if declare -p CONFIG &>/dev/null && [[ "$(declare -p CONFIG)" == declare\ -A* ]]; then
                 CONFIG["$varname"]="$selection"
             fi
-            echo
             return 0
         fi
         
@@ -574,3 +589,141 @@ function install_font_for_style() {
     cd "$HOME" || return 1
 }
 
+
+# Input validation functions
+validate_input() {
+    local input="$1"
+    local type="$2"
+    
+    case "$type" in
+        "hostname")
+            [[ "$input" =~ ^[a-zA-Z0-9\-]{1,63}$ ]] && return 0
+            ;;
+        "username")
+            [[ "$input" =~ ^[a-z_][a-z0-9_-]*$ ]] && return 0
+            ;;
+        "device")
+            [[ "$input" =~ ^/dev/[a-zA-Z0-9/_\.\-]+$ ]] && return 0
+            ;;
+        "timezone")
+            [[ "$input" =~ ^[A-Za-z]+/[A-Za-z_]+$ ]] && return 0
+            ;;
+        "locale")
+            [[ "$input" =~ ^[a-z]{2}_[A-Z]{2}\.[A-Z0-9-]+$ ]] && return 0
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+    
+    return 1
+}
+
+safe_user_input() {
+    local prompt="$1"
+    local validation_type="$2"
+    local default_value="${3:-}"
+    local input
+    
+    while true; do
+        if [[ -n "$default_value" ]]; then
+            if ! read -p "$prompt [$default_value]: " -r input </dev/tty; then
+                return 1
+            fi
+        else
+            if ! read -p "$prompt: " -r input </dev/tty; then
+                return 1
+            fi
+        fi
+        
+        input="${input:-$default_value}"
+        
+        if [[ -z "$input" ]]; then
+            print_failed "Input cannot be empty"
+            continue
+        fi
+        
+        if ! validate_input "$input" "$validation_type"; then
+            print_failed "Invalid $validation_type: $input"
+            continue
+        fi
+        
+        echo "$input"
+        return 0
+    done
+}
+
+validate_block_device() {
+    local device="$1"
+    
+    [[ -b "$device" ]] || {
+        log_error "Invalid block device: $device" 2>/dev/null || echo "ERROR: Invalid block device: $device" >&2
+        return 1
+    }
+    
+    # Prevent selecting system root device
+    local root_device
+    root_device=$(findmnt -n -o SOURCE / 2>/dev/null || echo "")
+    if [[ -n "$root_device" ]] && [[ "$device" == "$root_device"* ]]; then
+        log_error "Cannot use system root device" 2>/dev/null || echo "ERROR: Cannot use system root device" >&2
+        return 1
+    fi
+    
+    return 0
+}
+
+validate_hostname() {
+    local hostname="$1"
+    validate_input "$hostname" "hostname"
+}
+
+validate_username() {
+    local username="$1"
+    validate_input "$username" "username"
+}
+
+# Note: check_dependencies() is defined in packages.sh with auto-install capability
+# This function is kept here for backward compatibility but delegates to packages.sh version
+# if available, otherwise provides a basic implementation
+
+function check_dependencies() {
+    # If packages.sh version is available, use it
+    if declare -F check_dependencies &>/dev/null && [[ "$(type -t check_dependencies)" == "function" ]]; then
+        # Check if this is the packages.sh version (more comprehensive)
+        local func_def
+        func_def=$(declare -f check_dependencies)
+        if [[ "$func_def" == *"pacman"* ]] && [[ "$func_def" == *"auto-install"* ]]; then
+            # This is the packages.sh version, use it
+            return 0
+        fi
+    fi
+    
+    # Basic fallback implementation
+    print_msg "Checking dependencies..."
+    
+    # Check for required commands
+    local required_commands=("curl" "git" "pacman" "lsblk" "sgdisk" "parted")
+    local missing_commands=()
+    
+    for cmd in "${required_commands[@]}"; do
+        if ! command -v "$cmd" &>/dev/null; then
+            missing_commands+=("$cmd")
+        fi
+    done
+    
+    if [ ${#missing_commands[@]} -ne 0 ]; then
+        print_failed "Missing required commands: ${missing_commands[*]}"
+        print_msg "Please install missing dependencies and try again"
+        return 1
+    fi
+    
+    print_success "All dependencies are available"
+    return 0
+}
+
+# Cleanup function for exit
+cleanup_on_exit() {
+    print_msg "Cleaning up..."
+    umount -R /mnt/usb 2>/dev/null || true
+    rm -f /tmp/arch-install-* 2>/dev/null || true
+}

@@ -7,7 +7,9 @@ set -euo pipefail
 # - Runs Stage 1 installer
 
 # Enable proper interrupt handling
-trap cleanup_and_exit INT TERM EXIT
+trap 'cleanup_and_exit INT' INT
+trap 'cleanup_and_exit TERM' TERM
+trap 'cleanup_and_exit EXIT' EXIT
 set -o monitor
 
 REPO_URL="https://github.com/Neutron84/Arch_gate.git"
@@ -16,14 +18,19 @@ WORKDIR="$WORKDIR_BASE/Arch-gate"
 
 cleanup_and_exit() {
     local exit_code=$?
+    local signal_name="${1:-}"
+    
     echo -e "\n[INFO] Cleaning up..."
+    
     if [[ -d "$WORKDIR" ]]; then
-        rm -rf "$WORKDIR"
+        rm -rf "$WORKDIR" || true
     fi
-    if [[ $1 == INT || $1 == TERM ]]; then
+    
+    if [[ "$signal_name" == "INT" || "$signal_name" == "TERM" ]]; then
         echo "[INFO] Installation cancelled by user"
-        exit 130
+        exit_code=130
     fi
+    
     exit $exit_code
 }
 
@@ -63,7 +70,11 @@ prepare_workdir() {
 
 clone_repo() {
 	info "Cloning Arch Gate into $WORKDIR ..."
-	git clone --depth 1 "$REPO_URL" "$WORKDIR"
+	if ! git clone --depth 1 "$REPO_URL" "$WORKDIR" 2>&1; then
+		fail "Failed to clone repository from $REPO_URL"
+		fail "Please check your internet connection and try again"
+		exit 1
+	fi
 	success "Repository cloned"
 }
 

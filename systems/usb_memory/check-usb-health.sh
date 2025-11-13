@@ -10,9 +10,9 @@
 # - USB health monitoring service
 
 # Source required modules
-[[ -f "${0%/*}/../../../lib/colors.sh" ]] && source "${0%/*}/../../../lib/colors.sh"
-[[ -f "${0%/*}/../../../lib/logging.sh" ]] && source "${0%/*}/../../../lib/logging.sh"
-[[ -f "${0%/*}/../../../lib/utils.sh" ]] && source "${0%/*}/../../../lib/utils.sh"
+[[ -f "${0%/*}/../../lib/colors.sh" ]] && source "${0%/*}/../../lib/colors.sh"
+[[ -f "${0%/*}/../../lib/logging.sh" ]] && source "${0%/*}/../../lib/logging.sh"
+[[ -f "${0%/*}/../../lib/utils.sh" ]] && source "${0%/*}/../../lib/utils.sh"
 
 # Setup USB health check
 setup_usb_health_check() {

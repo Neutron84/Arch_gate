@@ -3,75 +3,148 @@
 # CONFIGURATION MANAGEMENT
 # =============================================================================
 
-# Source required modules
-[[ -f "${0%/*}/colors.sh" ]] && source "${0%/*}/colors.sh"
-[[ -f "${0%/*}/logging.sh" ]] && source "${0%/*}/logging.sh"
-[[ -f "${0%/*}/utils.sh" ]] && source "${0%/*}/utils.sh"
+# Source required modules (use BASH_SOURCE for reliable path when sourced)
+_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${0}}")" && pwd)"
+[[ -f "$_LIB_DIR/colors.sh" ]] && source "$_LIB_DIR/colors.sh"
+[[ -f "$_LIB_DIR/logging.sh" ]] && source "$_LIB_DIR/logging.sh"
+[[ -f "$_LIB_DIR/utils.sh" ]] && source "$_LIB_DIR/utils.sh"
 
 # Configuration file path
 CONFIG_FILE="/etc/archgate/config.conf"
 CONFIG_DIR="/etc/archgate"
 
+# Configuration validators registry
+declare -gA CONFIG_VALIDATORS=()
+
+# Register a validator function for a config key
+register_config_validator() {
+    local key="$1"
+    local validator_func="$2"
+    CONFIG_VALIDATORS["$key"]="$validator_func"
+    log_debug "Registered validator for config key: $key"
+}
+
+# Validate a config value using registered validator
+validate_config_value() {
+    local key="$1"
+    local value="$2"
+    
+    if [[ -n "${CONFIG_VALIDATORS[$key]}" ]]; then
+        if ${CONFIG_VALIDATORS[$key]} "$value"; then
+            return 0
+        else
+            log_error "Validation failed for $key=$value" 2>/dev/null || echo "ERROR: Validation failed for $key" >&2
+            return 1
+        fi
+    else
+        # No validator registered, accept value
+        return 0
+    fi
+}
+
 # Initialize configuration
 init_config() {
-    check_and_create_directory "$CONFIG_DIR"
+    if ! mkdir -p "$CONFIG_DIR" 2>/dev/null; then
+        print_failed "Failed to create config directory: $CONFIG_DIR"
+        return 1
+    fi
     
     if [[ ! -f "$CONFIG_FILE" ]]; then
-        touch "$CONFIG_FILE"
-        chmod 600 "$CONFIG_FILE"
-        log_debug "Configuration file created: $CONFIG_FILE"
+        if ! touch "$CONFIG_FILE" 2>/dev/null; then
+            print_failed "Failed to create config file: $CONFIG_FILE"
+            return 1
+        fi
+        chmod 600 "$CONFIG_FILE" 2>/dev/null || true
+        log_debug "Configuration file created: $CONFIG_FILE" || true
     fi
+    
+    # Register default validators if validation functions are available
+    if declare -F validate_block_device &>/dev/null; then
+        register_config_validator "device" "validate_block_device" || true
+    fi
+    if declare -F validate_hostname &>/dev/null; then
+        register_config_validator "hostname" "validate_hostname" || true
+    fi
+    if declare -F validate_username &>/dev/null; then
+        register_config_validator "username" "validate_username" || true
+    fi
+    
+    return 0
 }
 
 # Save configuration to file
 save_config() {
-    init_config
+    local temp_file
+    temp_file="${CONFIG_FILE}.tmp.$$"
     
-    # Backup existing config
+    if ! init_config; then
+        print_failed "Failed to initialize configuration"
+        return 1
+    fi
+    
+    # Backup existing config (ignore errors)
     if [[ -f "$CONFIG_FILE" ]]; then
-        check_and_backup "$CONFIG_FILE"
+        check_and_backup "$CONFIG_FILE" 2>/dev/null || true
     fi
     
     print_msg "Saving configuration to $CONFIG_FILE..."
     
-    # Write configuration
+    # Write configuration to temp file first
     {
         echo "# Arch Gate Configuration"
         echo "# Generated on: $(date)"
         echo ""
         
         # Storage configuration
-        [[ -n "${CONFIG[system_type]}" ]] && echo "SYSTEM_TYPE=${CONFIG[system_type]}"
-        [[ -n "${CONFIG[device]}" ]] && echo "DEVICE=${CONFIG[device]}"
-        [[ -n "${CONFIG[storage_type]}" ]] && echo "STORAGE_TYPE=${CONFIG[storage_type]}"
-        [[ -n "${CONFIG[partition_scheme]}" ]] && echo "PARTITION_SCHEME=${CONFIG[partition_scheme]}"
-        [[ -n "${CONFIG[filesystem_type]}" ]] && echo "FILESYSTEM_TYPE=${CONFIG[filesystem_type]}"
+        [[ -n "${CONFIG[system_type]:-}" ]] && echo "SYSTEM_TYPE=${CONFIG[system_type]}"
+        [[ -n "${CONFIG[device]:-}" ]] && echo "DEVICE=${CONFIG[device]}"
+        [[ -n "${CONFIG[storage_type]:-}" ]] && echo "STORAGE_TYPE=${CONFIG[storage_type]}"
+        [[ -n "${CONFIG[partition_scheme]:-}" ]] && echo "PARTITION_SCHEME=${CONFIG[partition_scheme]}"
+        [[ -n "${CONFIG[filesystem_type]:-}" ]] && echo "FILESYSTEM_TYPE=${CONFIG[filesystem_type]}"
         
         # System configuration
-        [[ -n "${CONFIG[hostname]}" ]] && echo "HOSTNAME=${CONFIG[hostname]}"
-        [[ -n "${CONFIG[root_password]}" ]] && echo "ROOT_PASSWORD=${CONFIG[root_password]}"
-        [[ -n "${CONFIG[username]}" ]] && echo "USERNAME=${CONFIG[username]}"
-        [[ -n "${CONFIG[user_password]}" ]] && echo "USER_PASSWORD=${CONFIG[user_password]}"
-        [[ -n "${CONFIG[timezone]}" ]] && echo "TIMEZONE=${CONFIG[timezone]}"
-        [[ -n "${CONFIG[locale]}" ]] && echo "LOCALE=${CONFIG[locale]}"
+        [[ -n "${CONFIG[hostname]:-}" ]] && echo "HOSTNAME=${CONFIG[hostname]}"
+        [[ -n "${CONFIG[root_password]:-}" ]] && echo "ROOT_PASSWORD=${CONFIG[root_password]}"
+        [[ -n "${CONFIG[root_use_password]:-}" ]] && echo "ROOT_USE_PASSWORD=${CONFIG[root_use_password]}"
+        [[ -n "${CONFIG[username]:-}" ]] && echo "USERNAME=${CONFIG[username]}"
+        [[ -n "${CONFIG[user_password]:-}" ]] && echo "USER_PASSWORD=${CONFIG[user_password]}"
+        [[ -n "${CONFIG[user_use_password]:-}" ]] && echo "USER_USE_PASSWORD=${CONFIG[user_use_password]}"
+        [[ -n "${CONFIG[create_user]:-}" ]] && echo "CREATE_USER=${CONFIG[create_user]}"
+        [[ -n "${CONFIG[timezone]:-}" ]] && echo "TIMEZONE=${CONFIG[timezone]}"
+        [[ -n "${CONFIG[locale]:-}" ]] && echo "LOCALE=${CONFIG[locale]}"
         
         # Package selection
-        [[ -n "${CONFIG[install_desktop]}" ]] && echo "INSTALL_DESKTOP=${CONFIG[install_desktop]}"
-        [[ -n "${CONFIG[install_dev]}" ]] && echo "INSTALL_DEV=${CONFIG[install_dev]}"
-        [[ -n "${CONFIG[install_office]}" ]] && echo "INSTALL_OFFICE=${CONFIG[install_office]}"
-        [[ -n "${CONFIG[install_graphics]}" ]] && echo "INSTALL_GRAPHICS=${CONFIG[install_graphics]}"
-        [[ -n "${CONFIG[install_nvidia]}" ]] && echo "INSTALL_NVIDIA=${CONFIG[install_nvidia]}"
-        [[ -n "${CONFIG[install_amd]}" ]] && echo "INSTALL_AMD=${CONFIG[install_amd]}"
-        [[ -n "${CONFIG[install_intel]}" ]] && echo "INSTALL_INTEL=${CONFIG[install_intel]}"
+        [[ -n "${CONFIG[install_desktop]:-}" ]] && echo "INSTALL_DESKTOP=${CONFIG[install_desktop]}"
+        [[ -n "${CONFIG[install_dev]:-}" ]] && echo "INSTALL_DEV=${CONFIG[install_dev]}"
+        [[ -n "${CONFIG[install_office]:-}" ]] && echo "INSTALL_OFFICE=${CONFIG[install_office]}"
+        [[ -n "${CONFIG[install_graphics]:-}" ]] && echo "INSTALL_GRAPHICS=${CONFIG[install_graphics]}"
+        [[ -n "${CONFIG[install_nvidia]:-}" ]] && echo "INSTALL_NVIDIA=${CONFIG[install_nvidia]}"
+        [[ -n "${CONFIG[install_amd]:-}" ]] && echo "INSTALL_AMD=${CONFIG[install_amd]}"
+        [[ -n "${CONFIG[install_intel]:-}" ]] && echo "INSTALL_INTEL=${CONFIG[install_intel]}"
         
         # Installation stage
-        [[ -n "${CONFIG[stage]}" ]] && echo "STAGE=${CONFIG[stage]}"
-        [[ -n "${CONFIG[mount_point]}" ]] && echo "MOUNT_POINT=${CONFIG[mount_point]}"
+        [[ -n "${CONFIG[stage]:-}" ]] && echo "STAGE=${CONFIG[stage]}"
+        [[ -n "${CONFIG[mount_point]:-}" ]] && echo "MOUNT_POINT=${CONFIG[mount_point]}"
         
-    } > "$CONFIG_FILE"
+    } > "$temp_file" 2>/dev/null || {
+        print_failed "Failed to write temporary configuration file"
+        rm -f "$temp_file" 2>/dev/null || true
+        return 1
+    }
+    
+    # Move temp file to final location atomically
+    if ! mv "$temp_file" "$CONFIG_FILE" 2>/dev/null; then
+        print_failed "Failed to move configuration file to final location"
+        rm -f "$temp_file" 2>/dev/null || true
+        return 1
+    fi
+    
+    # Set proper permissions
+    chmod 600 "$CONFIG_FILE" 2>/dev/null || true
     
     print_success "Configuration saved to $CONFIG_FILE"
-    log_debug "Configuration saved"
+    log_debug "Configuration saved" 2>/dev/null || true
+    return 0
 }
 
 # Load configuration from file
@@ -121,12 +194,19 @@ get_config() {
     echo "${CONFIG[$key]:-}"
 }
 
-# Set config value
+# Set config value with validation
 set_config() {
     local key="$1"
     local value="$2"
+    
+    # Validate if validator exists
+    if ! validate_config_value "$key" "$value"; then
+        return 1
+    fi
+    
     CONFIG["$key"]="$value"
     log_debug "Config set: $key=$value"
+    return 0
 }
 
 # Update config stage

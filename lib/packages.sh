@@ -3,10 +3,11 @@
 # PACKAGE MANAGEMENT SYSTEM - Supports pacman, pacstrap, and AUR
 # =============================================================================
 
-# Source required modules
-[[ -f "${0%/*}/colors.sh" ]] && source "${0%/*}/colors.sh"
-[[ -f "${0%/*}/logging.sh" ]] && source "${0%/*}/logging.sh"
-[[ -f "${0%/*}/utils.sh" ]] && source "${0%/*}/utils.sh"
+# Source required modules (use BASH_SOURCE for reliable path when sourced)
+_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${0}}")" && pwd)"
+[[ -f "$_LIB_DIR/colors.sh" ]] && source "$_LIB_DIR/colors.sh"
+[[ -f "$_LIB_DIR/logging.sh" ]] && source "$_LIB_DIR/logging.sh"
+[[ -f "$_LIB_DIR/utils.sh" ]] && source "$_LIB_DIR/utils.sh"
 
 # Global variables for package management
 PACKAGE_MANAGER="pacman"

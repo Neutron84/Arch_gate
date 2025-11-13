@@ -3,8 +3,9 @@
 # ADVANCED LOGGING SYSTEM
 # =============================================================================
 
-# Source colors first
-[[ -f "${0%/*}/colors.sh" ]] && source "${0%/*}/colors.sh"
+# Source colors first (use BASH_SOURCE for reliable path when sourced)
+_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${0}}")" && pwd)"
+[[ -f "$_LIB_DIR/colors.sh" ]] && source "$_LIB_DIR/colors.sh"
 
 # Logging configuration
 LOG_DIR="/var/log/archgate"
@@ -28,13 +29,45 @@ declare -A _LOG_LEVELS=(
 ##########################
 _log_level_to_num() {
     local lvl="${1^^}"
-    echo "${_LOG_LEVELS[$lvl]:-${_LOG_LEVELS[INFO]}}"
+    local default_level=20  # Default to INFO level (20)
+    local level_key
+    level_key="$lvl"
+    local level_value
+    
+    # Use case statement to avoid variable expansion issues with set -u
+    case "$level_key" in
+        "DEBUG")
+            level_value=10
+            ;;
+        "INFO")
+            level_value=20
+            ;;
+        "NOTICE")
+            level_value=25
+            ;;
+        "WARN")
+            level_value=30
+            ;;
+        "ERROR")
+            level_value=40
+            ;;
+        "CRITICAL")
+            level_value=50
+            ;;
+        *)
+            level_value="$default_level"
+            ;;
+    esac
+    
+    echo "$level_value"
 }
 
 _should_log() {
     local want="$1"
-    local wantn=$(_log_level_to_num "$want")
-    local currn=$(_log_level_to_num "$LOG_LEVEL")
+    local wantn
+    local currn
+    wantn=$(_log_level_to_num "$want")
+    currn=$(_log_level_to_num "${LOG_LEVEL:-INFO}")
     (( wantn >= currn ))
 }
 
@@ -107,7 +140,7 @@ _log_write() {
     local line="[${ts}] ${level} [pid:${pid}] ${caller_info:+(${caller_info}) }${msg}"
 
     if (( _LOG_INITIALIZED )) && [[ $_LOG_FD -ne 1 ]]; then
-        printf '%s\n' "$line" >&"${_LOG_FD}" 2>/dev/null || true
+        printf '%s\n' "$line" >&"${_LOG_FD}" || true
     else
         printf '%s\n' "$line"
     fi
@@ -116,7 +149,7 @@ _log_write() {
         local pri="user.info"
         case "$level" in
             DEBUG) pri="user.debug" ;;
-            INFO) pri="user.info" ;;
+            "INFO") pri="user.info" ;;
             NOTICE) pri="user.notice" ;;
             WARN) pri="user.warning" ;;
             ERROR) pri="user.err" ;;
@@ -129,12 +162,12 @@ _log_write() {
 ########################
 # Public log functions #
 ########################
-log_debug()    { _should_log DEBUG    && _log_write DEBUG    "$*" ; }
-log_info()     { _should_log INFO     && _log_write INFO     "$*" ; }
-log_notice()   { _should_log NOTICE   && _log_write NOTICE   "$*" ; }
-log_warn()     { _should_log WARN     && _log_write WARN     "$*" ; }
-log_error()    { _should_log ERROR    && _log_write ERROR    "$*" ; }
-log_critical() { _should_log CRITICAL && _log_write CRITICAL "$*" ; }
+log_debug()    { _should_log "DEBUG"    && _log_write "DEBUG"    "$*" ; }
+log_info()     { _should_log "INFO"     && _log_write "INFO"     "$*" ; }
+log_notice()   { _should_log "NOTICE"   && _log_write "NOTICE"   "$*" ; }
+log_warn()     { _should_log "WARN"     && _log_write "WARN"     "$*" ; }
+log_error()    { _should_log "ERROR"    && _log_write "ERROR"    "$*" ; }
+log_critical() { _should_log "CRITICAL" && _log_write "CRITICAL" "$*" ; }
 
 ########################
 # Console color mapping#
@@ -143,7 +176,7 @@ _level_color_prefix() {
     local level="$1"
     case "${level^^}" in
         DEBUG)  printf '%s' "${BLACKB}" ;;
-        INFO)   printf '%s' "${C}" ;;
+        "INFO") printf '%s' "${C}" ;;
         NOTICE) printf '%s' "${G}" ;;
         WARN)   printf '%s' "${Y}${BOLD}" ;;
         ERROR)  printf '%s' "${R}${BOLD}" ;;
@@ -171,7 +204,7 @@ print_log_console() {
 
     case "${level^^}" in
         DEBUG)    log_debug "$msg"    ;;
-        INFO)     log_info "$msg"     ;;
+        "INFO")  log_info "$msg"     ;;
         NOTICE)   log_notice "$msg"   ;;
         WARN)     log_warn "$msg"     ;;
         ERROR)    log_error "$msg"    ;;
@@ -181,12 +214,12 @@ print_log_console() {
 }
 
 # Enhanced print functions with logging
-print_success() { print_log_console NOTICE "[✓] $*"; }
-print_msg()     { print_log_console INFO "[-] $*"; }
-print_warn()    { print_log_console WARN "[!] $*"; }
-print_failed()  { print_log_console ERROR "[✗] $*"; }
-print_debug()   { print_log_console DEBUG "[#] $*"; }
-print_critical(){ print_log_console CRITICAL "[‼] $*"; }
+print_success() { print_log_console "NOTICE" "[✓] $*"; }
+print_msg()     { print_log_console "INFO" "[-] $*"; }
+print_warn()    { print_log_console "WARN" "[!] $*"; }
+print_failed()  { print_log_console "ERROR" "[✗] $*"; }
+print_debug()   { print_log_console "DEBUG" "[#] $*"; }
+print_critical(){ print_log_console "CRITICAL" "[‼] $*"; }
 
 ########################
 # Control helpers      #

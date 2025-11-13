@@ -3,10 +3,11 @@
 # PARTITION AND FILESYSTEM MANAGEMENT
 # =============================================================================
 
-# Source required modules
-[[ -f "${0%/*}/colors.sh" ]] && source "${0%/*}/colors.sh"
-[[ -f "${0%/*}/logging.sh" ]] && source "${0%/*}/logging.sh"
-[[ -f "${0%/*}/utils.sh" ]] && source "${0%/*}/utils.sh"
+# Source required modules (use BASH_SOURCE for reliable path when sourced)
+_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${0}}")" && pwd)"
+[[ -f "$_LIB_DIR/colors.sh" ]] && source "$_LIB_DIR/colors.sh"
+[[ -f "$_LIB_DIR/logging.sh" ]] && source "$_LIB_DIR/logging.sh"
+[[ -f "$_LIB_DIR/utils.sh" ]] && source "$_LIB_DIR/utils.sh"
 
 # Detect storage type (SSD, HDD, USB, SD card)
 detect_storage_type() {
@@ -330,31 +331,82 @@ mount_partitions() {
     fi
     
     print_msg "Mounting partitions..."
-    
-    # Create mount points
-    check_and_create_directory "$mount_point"
-    check_and_create_directory "$mount_point/persistent"
-    
-    # Mount ESP
-    if ! mount "$part_esp" "$mount_point"; then
-        print_msg "Retrying mount in 3 seconds..."
-        sleep 3
-        if ! mount "$part_esp" "$mount_point"; then
-            print_failed "Failed to mount ESP partition"
+
+    # Basic privilege hint
+    if [[ $(id -u) -ne 0 ]]; then
+        print_warn "Not running as root. Mounts and mkdir may fail without root privileges."
+    fi
+
+    # Ensure mount point parent exists
+    local mp_parent
+    mp_parent=$(dirname "$mount_point")
+    if [[ ! -d "$mp_parent" ]]; then
+        if ! mkdir -p "$mp_parent" 2>/dev/null; then
+            print_failed "Failed to create parent directory for mount point: $mp_parent"
             return 1
         fi
     fi
-    
-    # Mount main partition
-    if ! mount "$part_main" "$mount_point/persistent"; then
-        print_failed "Failed to mount main partition"
+
+    # If mount_point exists but is not a directory, move it aside and create a directory
+    if [[ -e "$mount_point" && ! -d "$mount_point" ]]; then
+        local backup_path="/tmp/archgate-moved-$(basename "$mount_point")-$(date +%s)"
+        print_warn "Mount point '$mount_point' exists and is not a directory. Moving to: $backup_path"
+        if ! mv -f "$mount_point" "$backup_path" 2>/dev/null; then
+            print_failed "Failed to move existing file at $mount_point to $backup_path. Please remove or rename it and retry."
+            return 1
+        fi
+    fi
+
+    # Create mount point and persistent directory
+    if ! mkdir -p "$mount_point" 2>/dev/null; then
+        print_failed "Failed to create mount point: $mount_point (permission or filesystem error)"
         return 1
     fi
-    
+
+    local persistent_dir="$mount_point/persistent"
+    if ! mkdir -p "$persistent_dir" 2>/dev/null; then
+        # If creation failed, check for common causes
+        if [[ ! -w "$mount_point" ]]; then
+            print_failed "Mount point '$mount_point' is not writable. Check permissions or run as root."
+        else
+            print_failed "Failed to create persistent directory: $persistent_dir"
+        fi
+        return 1
+    fi
+
+    # Sync and wait a bit for filesystem to be ready
+    sync
+    sleep 1
+
+    # Mount ESP with retry and captured output for debugging
+    local out
+    out=$(mount "$part_esp" "$mount_point" 2>&1) || true
+    if [[ $? -ne 0 ]]; then
+        print_msg "Retrying mount in 3 seconds..."
+        sleep 3
+        sync
+        out=$(mount "$part_esp" "$mount_point" 2>&1) || true
+        if [[ $? -ne 0 ]]; then
+            print_failed "Failed to mount ESP partition: $part_esp to $mount_point"
+            print_msg "Mount output: $out"
+            return 1
+        fi
+    fi
+
+    # Mount main partition
+    out=$(mount "$part_main" "$persistent_dir" 2>&1) || true
+    if [[ $? -ne 0 ]]; then
+        print_failed "Failed to mount main partition: $part_main to $persistent_dir"
+        print_msg "Mount output: $out"
+        print_msg "Trying to unmount ESP and retry..."
+        umount "$mount_point" 2>/dev/null || true
+        return 1
+    fi
+
     print_success "Partitions mounted successfully"
     print_msg "ESP: $mount_point"
     print_msg "Main: $mount_point/persistent"
-    
+
     return 0
 }
 
