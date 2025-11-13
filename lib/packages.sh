@@ -9,6 +9,7 @@ _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${0}}")" && pwd)"
 [[ -f "$_LIB_DIR/logging.sh" ]] && source "$_LIB_DIR/logging.sh"
 [[ -f "$_LIB_DIR/utils.sh" ]] && source "$_LIB_DIR/utils.sh"
 [[ -f "$_LIB_DIR/pacman-utils.sh" ]] && source "$_LIB_DIR/pacman-utils.sh"
+[[ -f "$_LIB_DIR/recovery.sh" ]] && source "$_LIB_DIR/recovery.sh"
 
 # Global variables for package management
 PACKAGE_MANAGER="pacman"
@@ -97,6 +98,13 @@ function package_install_and_check() {
     
     log_debug "Starting package installation for: $packs_list"
     
+    # Create a recovery point before bulk installs
+    local _rp_ts
+    _rp_ts=$(date -u +%Y%m%dT%H%M%SZ)
+    if command -v create_recovery_point &>/dev/null; then
+        create_recovery_point "pre_install_${_rp_ts}" || print_warn "Failed to create pre-install recovery point"
+    fi
+
     IFS=' ' read -r -a packs_array <<< "$packs_list"
     
     for package_name in "${packs_array[@]}"; do
@@ -203,6 +211,13 @@ function package_install_pacstrap() {
     local max_retries=5
     local install_success=false
     
+    # Create a recovery point prior to pacstrap operations
+    local _rp_ts
+    _rp_ts=$(date -u +%Y%m%dT%H%M%SZ)
+    if command -v create_recovery_point &>/dev/null; then
+        create_recovery_point "pre_pacstrap_${package_name}_${_rp_ts}" || print_warn "Failed to create pre-pacstrap recovery point"
+    fi
+
     print_msg "Installing package (pacstrap): ${C}$package_name"
     
     while [[ "$retry_count" -lt "$max_retries" && "$install_success" == false ]]; do
@@ -359,6 +374,13 @@ function package_remove_pacman() {
         return 0
     fi
     
+    # Create a recovery point prior to removal
+    local _rp_ts
+    _rp_ts=$(date -u +%Y%m%dT%H%M%SZ)
+    if command -v create_recovery_point &>/dev/null; then
+        create_recovery_point "pre_remove_${package_name}_${_rp_ts}" || print_warn "Failed to create pre-remove recovery point"
+    fi
+
     print_msg "Removing package: ${C}$package_name"
     safe_handle_pacman_lock 60
     
@@ -372,6 +394,13 @@ function package_remove_pacman() {
 }
 
 function package_update_all() {
+    # Create a recovery point before updating the system
+    local _rp_ts
+    _rp_ts=$(date -u +%Y%m%dT%H%M%SZ)
+    if command -v create_recovery_point &>/dev/null; then
+        create_recovery_point "pre_update_${_rp_ts}" || print_warn "Failed to create pre-update recovery point"
+    fi
+
     print_msg "Updating package repositories and system packages..."
     safe_handle_pacman_lock 60
     
