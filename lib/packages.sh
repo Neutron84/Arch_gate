@@ -8,6 +8,7 @@ _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${0}}")" && pwd)"
 [[ -f "$_LIB_DIR/colors.sh" ]] && source "$_LIB_DIR/colors.sh"
 [[ -f "$_LIB_DIR/logging.sh" ]] && source "$_LIB_DIR/logging.sh"
 [[ -f "$_LIB_DIR/utils.sh" ]] && source "$_LIB_DIR/utils.sh"
+[[ -f "$_LIB_DIR/pacman-utils.sh" ]] && source "$_LIB_DIR/pacman-utils.sh"
 
 # Global variables for package management
 PACKAGE_MANAGER="pacman"
@@ -171,10 +172,10 @@ function package_install_pacman_single() {
         retry_count=$((retry_count + 1))
         
         safe_handle_pacman_lock 60 || print_warn "pacman lock handling returned non-zero"
-        
+
         print_msg "Installing package (pacman): ${C}$package_name"
-        
-        if pacman -S --noconfirm --needed "$package_name" 2>/dev/null; then
+
+        if safe_package_install "$package_name"; then
             if pacman -Qi "$package_name" &>/dev/null; then
                 print_success "Successfully installed package: ${C}$package_name"
                 install_success=true
@@ -184,7 +185,6 @@ function package_install_pacman_single() {
             fi
         else
             print_warn "Failed to install package: ${C}$package_name. Retrying... ($retry_count/$max_retries)"
-            pacman -Sy --noconfirm 2>/dev/null
         fi
     done
     
