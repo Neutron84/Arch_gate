@@ -6,33 +6,85 @@ set -euo pipefail
 # - Clones repo into /tmp/arch-gate
 # - Runs Stage 1 installer
 
-# Enable proper interrupt handling
-trap 'cleanup_and_exit INT' INT
-trap 'cleanup_and_exit TERM' TERM
-trap 'cleanup_and_exit EXIT' EXIT
-set -o monitor
-
 REPO_URL="https://github.com/Neutron84/Arch_gate.git"
 WORKDIR_BASE="/tmp"
 WORKDIR="$WORKDIR_BASE/Arch-gate"
 
-cleanup_and_exit() {
-    local exit_code=$?
-    local signal_name="${1:-}"
+# Lock file to prevent multiple instances
+LOCKFILE="/var/lock/archgate.lock"
+LOCKFILE_ALT="/tmp/archgate.lock"
+
+# Function to acquire lock
+acquire_lock() {
+    # Try /var/lock first (standard location), fallback to /tmp
+    local lockfile="$LOCKFILE"
+    if [[ ! -w "/var/lock" ]] 2>/dev/null; then
+        lockfile="$LOCKFILE_ALT"
+    fi
+    
+    # Check if lockfile exists and process is still running
+    if [[ -f "$lockfile" ]]; then
+        local pid
+        pid=$(cat "$lockfile" 2>/dev/null || echo "")
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            fail "Another instance of Arch Gate is already running (PID: $pid)"
+            fail "If you're sure no other instance is running, remove: $lockfile"
+            exit 1
+        else
+            # Stale lockfile, remove it
+            rm -f "$lockfile" || true
+        fi
+    fi
+    
+    # Create lockfile with current PID
+    echo $$ > "$lockfile" || {
+        fail "Failed to create lockfile: $lockfile"
+        exit 1
+    }
+    
+    # Export lockfile path for cleanup
+    export LOCKFILE_PATH="$lockfile"
+}
+
+# Unified cleanup function for all signals
+cleanup() {
+    local signal="${1:-EXIT}"
+    local exit_code=${2:-$?}
+    
+    # Prevent multiple cleanup calls
+    if [[ "${CLEANUP_DONE:-}" == "true" ]]; then
+        return
+    fi
+    export CLEANUP_DONE=true
     
     echo -e "\n[INFO] Cleaning up..."
     
+    # Remove lockfile
+    if [[ -n "${LOCKFILE_PATH:-}" ]] && [[ -f "${LOCKFILE_PATH}" ]]; then
+        rm -f "${LOCKFILE_PATH}" || true
+    fi
+    
+    # Clean up workdir
     if [[ -d "$WORKDIR" ]]; then
         rm -rf "$WORKDIR" || true
     fi
     
-    if [[ "$signal_name" == "INT" || "$signal_name" == "TERM" ]]; then
+    # Set appropriate exit code for signals
+    if [[ "$signal" == "INT" || "$signal" == "TERM" ]]; then
         echo "[INFO] Installation cancelled by user"
         exit_code=130
     fi
     
     exit $exit_code
 }
+
+# Set up unified signal handlers
+# Use a single trap that handles all signals properly
+trap 'cleanup INT 130' INT
+trap 'cleanup TERM 143' TERM
+trap 'cleanup EXIT' EXIT
+
+set -o monitor
 
 info()  { echo "[INFO]  $*"; }
 success(){ echo "[OK]    $*"; }
@@ -92,11 +144,18 @@ run_stage1() {
 		fi
 	fi
 	info "Starting Stage 1 installer..."
-	exec "$stage1"  # Use exec to properly handle signals
+	# Run without exec to preserve parent traps and allow cleanup
+	"$stage1"
+	local stage1_exit_code=$?
+	if [[ $stage1_exit_code -ne 0 ]]; then
+		fail "Stage 1 installer exited with code: $stage1_exit_code"
+		exit $stage1_exit_code
+	fi
 }
 
 main() {
 	require_root
+	acquire_lock
 	check_prereqs
 	prepare_workdir
 	clone_repo
