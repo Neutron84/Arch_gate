@@ -164,13 +164,6 @@ while true; do
         print_failed "Please select a different device that is not currently in use"
         continue
     fi
-
-    # Check for WSL system drive
-    if [[ -d "/mnt/wslg" ]] && findmnt "$DEVICE" 2>/dev/null | grep -q "/mnt/wslg"; then
-        print_failed "Error: $DEVICE is the WSL system drive and cannot be used"
-        print_failed "Please select a different device that is not the WSL system drive"
-        continue
-    fi
     
     # Display selected disk information
     print_warn "Selected drive information:"
@@ -503,12 +496,24 @@ if [[ "${CONFIG[filesystem_type]}" == "bcachefs" ]]; then
         # Try to load bcachefs module
         if ! modinfo bcachefs &>/dev/null; then
             print_msg "Building bcachefs module with DKMS..."
-            dkms autoinstall 2>/dev/null || print_warn "DKMS build had issues"
-            modprobe bcachefs 2>/dev/null || {
-                print_warn "Could not load bcachefs module, falling back to ext4"
-                CONFIG[filesystem_type]="ext4"
-                save_config
-            }
+            dkms_output=$(dkms autoinstall 2>&1) || dkms_status=$?
+            dkms_status=${dkms_status:-0}
+            if [[ $dkms_status -ne 0 ]]; then
+                print_warn "DKMS build failed (exit code: $dkms_status). bcachefs may not be available in this environment."
+                print_warn "Note: bcachefs kernel module requires kernel source matching live environment."
+            fi
+        fi
+        
+        # Attempt to load bcachefs module with diagnostic info
+        if ! modprobe bcachefs 2>/dev/null; then
+            modprobe_err=$(modprobe bcachefs 2>&1 || true)
+            print_warn "Could not load bcachefs module"
+            print_warn "Reason: $modprobe_err"
+            print_warn "Falling back to ext4 filesystem"
+            CONFIG[filesystem_type]="ext4"
+            save_config
+        else
+            print_success "bcachefs module loaded successfully"
         fi
     fi
 fi

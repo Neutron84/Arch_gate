@@ -567,20 +567,9 @@ mount_partitions() {
         fi
     fi
 
-    # Create mount point and persistent directory
+    # Create mount point 
     if ! mkdir -p "$mount_point" 2>/dev/null; then
         print_failed "Failed to create mount point: $mount_point (permission or filesystem error)"
-        return 1
-    fi
-
-    local persistent_dir="$mount_point/persistent"
-    if ! mkdir -p "$persistent_dir" 2>/dev/null; then
-        # If creation failed, check for common causes
-        if [[ ! -w "$mount_point" ]]; then
-            print_failed "Mount point '$mount_point' is not writable. Check permissions or run as root."
-        else
-            print_failed "Failed to create persistent directory: $persistent_dir"
-        fi
         return 1
     fi
 
@@ -594,6 +583,20 @@ mount_partitions() {
         return 1
     fi
     print_success "ESP partition mounted"
+
+    # Create persistent directory AFTER mounting ESP (so it's not shadowed by the mount)
+    local persistent_dir="$mount_point/persistent"
+    if ! mkdir -p "$persistent_dir" 2>/dev/null; then
+        # If creation failed, check for common causes
+        if [[ ! -w "$mount_point" ]]; then
+            print_failed "Mount point '$mount_point' is not writable. Check permissions or run as root."
+            umount "$mount_point" 2>/dev/null || true
+        else
+            print_failed "Failed to create persistent directory: $persistent_dir"
+            umount "$mount_point" 2>/dev/null || true
+        fi
+        return 1
+    fi
 
     # Mount main partition with retry
     if ! mount_with_retry "$part_main" "$persistent_dir" 3; then
