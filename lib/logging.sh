@@ -252,3 +252,55 @@ set_log_file() {
 enable_syslog()  { SYSLOG_ENABLED=1; print_msg "Syslog enabled"; }
 disable_syslog() { SYSLOG_ENABLED=0; print_msg "Syslog disabled"; }
 
+########################
+# Advanced error trap  #
+########################
+error_handler() {
+    local exit_code=${1:-$?}
+    local lineno=${2:-${BASH_LINENO[0]:-0}}
+    local cmd=${3:-${BASH_COMMAND:-}}
+
+    # Log the immediate failure
+    log_error "Command failed: ${cmd} (line: ${lineno}, exit: ${exit_code})"
+
+    # Log stack trace
+    log_debug "Stack trace (most recent call last):"
+    local i=0
+    while caller $i >/dev/null 2>&1; do
+        local call
+        call=$(caller $i)
+        log_debug "  ${call}"
+        i=$((i + 1))
+    done
+
+    # Dump environment snapshot (safe amount)
+    log_debug "Environment snapshot (selected variables):"
+    # Print a small set of well-known vars to avoid huge dumps
+    log_debug "PWD=${PWD:-}":
+    log_debug "USER=${USER:-}":
+    log_debug "SHELL=${SHELL:-}":
+
+    # Optionally keep the logger open briefly to flush
+    sleep 0.05
+
+    # Re-raise the exit
+    exit "$exit_code"
+}
+
+# Setup trap for ERR to collect contextual information and log
+setup_advanced_logging() {
+    # Ensure logger initialized
+    init_logger || return 1
+
+    # Use -E to allow ERR trap to be inherited by functions
+    set -o errtrace
+    # Trap ERR and run our handler; pass exit code, line and command
+    trap 'error_handler $? ${LINENO} "${BASH_COMMAND}"' ERR
+
+    # Make sure to capture unhandled SIGs to log them too
+    trap 'log_warn "Script interrupted by SIGINT"; close_logger; exit 130' INT
+    trap 'log_warn "Script terminated by SIGTERM"; close_logger; exit 143' TERM
+
+    print_msg "Advanced logging and error handler set"
+}
+
