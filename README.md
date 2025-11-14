@@ -37,7 +37,7 @@ Arch Gate is not just an installer; it's a complete deployment solution. It tran
 3.  **Run the Arch Gate launcher.**
     Copy and paste the following command into your terminal:
     ```bash
-    curl -sL https://raw.githubusercontent.com/Neutron84/Arch_gate/main/gate.sh | sudo bash
+    curl -sL https://raw.githubusercontent.com/Neutron84/Arch_gate/main/gate.sh && chmod +x ./gate.sh && sudo ./gate.sh
     ```
     This will download the launcher, which clones the full project and starts the interactive installer.
 
@@ -85,5 +85,6 @@ For a deep dive into all the features, commands, and runtime services, please re
 Contributions are welcome! If you'd like to help, please open an issue to discuss your idea or submit a pull request. All shell scripts are checked with `shellcheck`.
 
 ## 📜 License
+
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
