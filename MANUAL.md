@@ -1,283 +1,99 @@
-# Arch Gate — User Manual (English)
+# Arch Gate — User Manual
 
-This manual documents the tools, services and workflows included in the Arch Gate installer and runtime image. It is intended as a concise reference for installing and maintaining systems on internal storage (SSD/HDD) or portable media (USB/SD) with hybrid boot.
+This manual provides a comprehensive reference for the tools, services, and workflows included in the Arch Gate runtime image.
 
-Table of contents
-- Stage 1/2 Flow & System Types
-- Safety & Recovery
-- Atomic Update System
-- Overlay Root (Squashfs/EROFS) & Home Persistence
-- Advanced Optimizations
-- Package Management & Cache Cleaning
-- Kernel & Driver Notes
-
----
-
-## Stage 1/2 Flow & System Types
-
-During Stage 1 (live environment), Arch Gate asks for the target device and system type:
-
-- Real systems (internal): `ssd`, `hdd`
-- Portable systems (hybrid boot): `ssd_external`, `hdd_external`, `usb_memory`, `sdcard`
-
-Stage 1 performs partitioning, formatting, mounting, and a minimal system install in a persistent root (e.g. `/mnt/usb/persistent/arch_root`), then hands off to Stage 2 via a systemd oneshot service inside the installed system.
-
-Stage 2 completes configuration and integrates advanced modules: overlay root, atomic updates, safety & recovery, memory optimization, advanced optimizations, and GRUB hybrid boot where applicable.
+## Table of Contents
+- [Arch Gate — User Manual](#arch-gate--user-manual)
+  - [Table of Contents](#table-of-contents)
+    - [1. System Architecture Overview](#1-system-architecture-overview)
+      - [Stage 1 \& 2 Flow](#stage-1--2-flow)
+      - [Overlay Root \& Persistence](#overlay-root--persistence)
+    - [2. Atomic Update System](#2-atomic-update-system)
+    - [3. Safety \& Recovery Services](#3-safety--recovery-services)
+    - [4. Advanced Optimizations](#4-advanced-optimizations)
+    - [5. Package Management](#5-package-management)
+    - [6. Troubleshooting \& Logs](#6-troubleshooting--logs)
 
 ---
 
-## Safety & Recovery
+### 1. System Architecture Overview
 
-These tools provide data integrity, automatic recovery, and automatic remediation features to reduce the risk of data loss on removable media.
+#### Stage 1 & 2 Flow
+Arch Gate uses a two-stage installation process. **Stage 1** runs in the live environment, gathers user configuration, partitions the disk, and installs a minimal base system. It then creates and enables a `systemd` service (`archgate-stage2.service`) to run on the first boot.
 
-1) Forced sync utility
+**Stage 2** takes over automatically on the new system. It reads the configuration from `/etc/archgate/config.conf` and completes the installation non-interactively, including all software packages, drivers, and advanced feature modules like the Atomic Update System. After a successful run, it removes itself.
 
-```bash
-# Run an immediate enforced sync
-enforced-sync
-
-# Enable/disable periodic enforced sync
-systemctl enable periodic-sync.timer
-systemctl disable periodic-sync.timer
-systemctl status periodic-sync.timer
-```
-
-2) I/O health monitoring
-
-```bash
-# Check the I/O health monitor service
-systemctl status io-health-monitor.service
-
-# Follow the I/O health log
-tail -f /var/log/io-health.log
-```
-
-3) Snapshot and recovery
-
-```bash
-# Create a manual snapshot
-create-system-snapshot
-
-# Manage the automatic snapshot timer
-systemctl enable system-snapshot.timer
-systemctl disable system-snapshot.timer
-systemctl status system-snapshot.timer
-
-# List snapshots
-ls -l /persistent/snapshots/
-```
-
-4) Telemetry and performance metrics
-
-```bash
-# View collected metrics
-cat /persistent/telemetry/performance-metrics.csv
-
-# Manage telemetry timer/service
-systemctl status performance-telemetry.timer
-systemctl enable performance-telemetry.timer
-systemctl disable performance-telemetry.timer
-```
-
-5) Power-failure detection and emergency handling
-
-```bash
-# View power-failure service
-systemctl status power-failure-detector.service
-
-# Follow power event log
-tail -f /var/log/power-events.log
-```
+#### Overlay Root & Persistence
+For portable system types, Arch Gate configures a robust overlay filesystem:
+-   **Base Layer (Read-Only):** The core operating system is stored in a compressed `EROFS` or `Squashfs` image located at `/persistent/arch/root.squashfs`. This layer is immutable.
+-   **Overlay Layer (Writable):** A `tmpfs` (RAM-based filesystem) is used for all runtime changes. This means all changes are temporary and are discarded on reboot, ensuring a clean state every time.
+-   **Persistent Data:** Your personal data is safe. The `/home` directory is symlinked to `/persistent/home/` on the physical partition, so your files, downloads, and user-specific application settings survive reboots.
 
 ---
 
-## Atomic Update System
+### 2. Atomic Update System
+This system allows you to update your OS without risking an unbootable state. Updates are built in the background and only swapped in after successful completion.
 
-The image uses an atomic-update design: updates are prepared in a staging area, converted to a read-only root image (squashfs/erofs), then atomically swapped in. This reduces the chance of an unbootable system after an interrupted update.
-
-Basic commands
-
+**Commands:**
 ```bash
-# Run the update (do not interrupt)
-atomic-update-manager update-system
+# Check for updates, build, and apply a new system image
+sudo atomic-update-manager update-system
 
-# Roll back the last transaction (if a failure occurred)
-atomic-update-manager rollback
+# If an update causes issues, revert to the previous working state
+sudo atomic-update-manager rollback
 
-# Show current transaction status
+# View the status of the last transaction
 atomic-update-manager status
 ```
-
-Snapshot management
-
-```bash
-# Create a snapshot before update
-atomic-snapshot pre-update
-
-# List snapshot information
-atomic-snapshot info
-
-# Rotate snapshots (manual)
-atomic-snapshot rotate
-
-# Set maximum snapshots to retain
-atomic-snapshot set-max 5
-```
-
-Recovering from snapshots
-
-```bash
-# List available recovery archives
-atomic-recovery list
-
-# Recover from a snapshot archive
-atomic-recovery recover /persistent/snapshots/atomic-snapshot-YYYYMMDD-HHMMSS.tar.gz
-```
-
-Notes
-- The update process will verify squashfs integrity and back up the previous root image before switching.
-- mkinitcpio is executed inside the staging environment with minimal bind mounts; if mkinitcpio fails the transaction will be aborted and rolled back.
-- The rollback action restores the previous squashfs image and kernel artifacts from backup.
+For more details on managing snapshots and recovery, see the `atomic-snapshot` and `atomic-recovery` commands.
 
 ---
 
-## Overlay Root (Squashfs/EROFS) & Home Persistence
+### 3. Safety & Recovery Services
+Arch Gate includes several background services to protect your system and data.
 
-Arch Gate uses an overlay root design for portable targets:
-
-- Root: Read-only Squashfs or EROFS image at `/persistent/arch/root.squashfs`
-- Upper/work: tmpfs overlay for writable runtime
-- Home and persistent data: `/persistent/home` is kept on the main partition and linked to `/home`
-
-Initialization is handled by an `overlay` mkinitcpio hook. EROFS is preferred (with LZ4HC) when supported; otherwise Squashfs (ZSTD) is used.
+| Service (`.service` or `.timer`) | Description                                                                                             | How to Check                                       |
+| :------------------------------- | :------------------------------------------------------------------------------------------------------ | :------------------------------------------------- |
+| `periodic-sync.timer`            | Periodically forces data to be written to the physical disk to prevent data loss.                       | `systemctl status periodic-sync.timer`             |
+| `io-health-monitor.service`      | Monitors for excessive I/O errors and can automatically switch the system to read-only to prevent corruption. | `tail -f /var/log/io-health.log`                   |
+| `system-snapshot.timer`          | Creates daily snapshots of critical configuration files in `/persistent/snapshots/`.                      | `ls -l /persistent/snapshots`                      |
+| `power-failure-detector.service` | Detects a switch to battery power (on laptops) and triggers a safe sync.                                | `tail -f /var/log/power-events.log`                |
 
 ---
 
-## Advanced Optimizations
+### 4. Advanced Optimizations
+The system automatically applies performance tuning based on your hardware.
 
-This section lists optional services and helpers that are installed in the runtime image.
+-   **Memory:** ZRAM and ZSWAP are configured based on total system RAM to reduce disk I/O. Check with `sudo zramctl` or `cat /sys/module/zswap/parameters/*`.
+-   **Hardware Profiles:** On boot, a script detects your CPU/GPU/RAM and applies specific environment variables for better performance. Check the current profile in `/var/lib/hardware-profile/current`.
+-   **Prefetching:** A `systemd` timer periodically analyzes application usage and pre-loads them into memory for faster startup.
 
-ZSWAP configuration
+---
 
+### 5. Package Management
+The system uses `pacman` and can be configured with an AUR helper.
+
+**Cache Cleaning:**
+To save space, package caches can be automatically cleaned. This behavior is configured during Stage 1 via environment variables. You can manually trigger a clean with:
 ```bash
-# Reconfigure zswap with current heuristics
-/usr/local/bin/configure-zswap
-
-# View zswap parameters
-cat /proc/sys/vm/zswap*
-cat /sys/module/zswap/parameters/*
-```
-
-Bcachefs optimizations
-
-```bash
-# Apply bcachefs optimizations
-/usr/local/bin/optimize-bcachefs
-
-# Show bcachefs status
-bcachefs fs show /dev/disk/by-label/ARCH_PERSIST
-```
-
-Smart prefetch
-
-```bash
-# Run on-login prefetch
-smart-prefetch on-login
-
-# Run periodic prefetch
-smart-prefetch periodic
-```
-
-Service management examples
-
-```bash
-systemctl status configure-zswap.service
-systemctl status bcachefs-optimize.service
-systemctl status smart-prefetch.timer
+# Clean pacman and AUR helper caches
+sudo clean_package_cache
 ```
 
 ---
 
-## Package Management & Cache Cleaning
+### 6. Troubleshooting & Logs
+Key log files are located in `/var/log/`.
 
-To minimize used space on removable media the installer includes automatic cache management.
+-   **Installation Log:** `/var/log/archgate/stage2.log`
+-   **Atomic Updates:** `/var/log/atomic-updates.log`
+-   **I/O Health:** `/var/log/io-health.log`
 
-Configuration variables (for cache policy are applied during install and within runtime tools):
-
-- AUTO_CLEAN_CACHE=true|false — enable or disable automatic cleaning (default: true)
-- CACHE_CLEAN_STRATEGY=immediate|batch|smart — cleaning strategy (default: immediate)
-- CACHE_BATCH_THRESHOLD=N — number of installs before a batch clean (default: 5)
-
-Strategies
-
-- immediate: Clean caches after every successful package installation.
-- batch: Clean caches every N successful installs (controlled by CACHE_BATCH_THRESHOLD).
-- smart: Inspect the installed package's size and clean only for large packages (>= ~50MB).
-
-Examples
-
+For system-wide issues, use `journalctl`:
 ```bash
-# Disable automatic cache cleaning for troubleshooting
-export AUTO_CLEAN_CACHE=false
+# View all recent logs
+journalctl -xe
 
-# Use batch cleaning every 10 packages
-export CACHE_CLEAN_STRATEGY=batch
-export CACHE_BATCH_THRESHOLD=10
-
-# Use smart cleaning behavior
-export CACHE_CLEAN_STRATEGY=smart
+# Follow logs from the boot process
+journalctl -b -f
 ```
-
-Atomic update staging cache cleaning
-
-- During `atomic-update-manager update-system`, the updater will proactively clean the staging root's pacman cache (inside the staging chroot) before creating the squashfs image to minimize the image size.
-
-Manual cache cleaning
-
-```bash
-# Clean pacman cache and AUR helper caches (when running on the installed system)
-clean_package_cache
-
-# Silent mode
-clean_package_cache true
-```
-
-Tradeoffs
-
-- Cleaning caches reduces disk usage but removes the local package artifacts that enable quick local reinstalls.
-- If you need offline reinstalls from the USB drive, set `AUTO_CLEAN_CACHE=false` or use the batch/smart strategies.
-
----
-
-## Kernel & Driver Notes
-
-Kernel compatibility
-
-- The installer attempts to keep the installed kernel compatible with the running live environment.
-- If you need a different kernel version, boot the live environment with your desired kernel and re-run the installer.
-
-Rebuilding initramfs
-
-```bash
-# Rebuild initramfs for a specific kernel
-mkinitcpio --kernel <kernel-version> -P
-
-# Rebuild for all installed kernels
-mkinitcpio -P
-```
-
-GRUB boot entries
-
-The system ships with multiple boot menu entries (automatic profile selection, low/medium/high resource modes, safe mode, recovery, snapshot recovery).
-
----
-
-## Logging and troubleshooting
-
-- Installer logs: `/var/log/archgate/stage2.log` (Stage 2) and project logs in `/var/log/arch_usb/arch_usb.log` when applicable
-- Atomic update logs: `/var/log/atomic-updates.log`
-- I/O health: `/var/log/io-health.log`
-- Snapshot operations: `/persistent/snapshots/`
-
-Use `journalctl -xe` to inspect systemd journal messages and `tail -f` to follow specific logs.
-

@@ -1,81 +1,89 @@
-# Arch Gate — Universal Arch Linux Installer and Runtime
+# Arch Gate 🚀
 
-This repository contains a feature-rich Arch Linux installer/runtime that supports both real systems (internal SSD/HDD) and portable media (USB/SD) with hybrid boot. It includes overlay root, atomic updates, safety & recovery, and advanced optimizations.
+**A Universal, Modular, and Hardware-Aware Framework for Deploying Optimized Arch Linux Systems.**
 
-What this repo provides
-- `gate.sh` — lightweight launcher (downloads repo and starts Stage 1).
-- `archgate/stages/stage1.sh` — interactive configuration (system type, device, partitioning, minimal install).
-- `archgate/stages/stage2.sh` — completes configuration inside the installed system and integrates advanced modules.
-- `archgate/lib/*.sh` — feature modules (overlay, atomic-update, safety, memory, optimizations, grub advanced).
-- `MANUAL.md` — user manual and reference for runtime services.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![ShellCheck](https://github.com/Neutron84/Arch_gate/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/Neutron84/Arch_gate/actions/workflows/shellcheck.yml)
+[![Version: 0.5.0 (Alpha)](https://img.shields.io/badge/Version-0.5.0-orange.svg)]()
 
-Quick start
+<!-- ![Arch Gate Banner](URL_BANNER_IMAGE_HERE)  -->
 
-Run from a live Arch system (one-liner setup and run):
+Arch Gate is not just an installer; it's a complete deployment solution. It transforms a minimal Arch Linux live environment into a fully configured, optimized, and reliable system, tailored to your specific hardware—whether it's an internal SSD, a portable USB drive, or an SD card.
 
+---
 
-#### Download and verify first:
-```bash
-curl -sL https://raw.githubusercontent.com/Neutron84/Arch_gate/refs/heads/main/gate.sh > /tmp/gate.sh && chmod +x /tmp/gate.sh && sudo /tmp/gate.sh
-```
-#### Or run directly with proper signal handling
-```bash
-curl -sL https://raw.githubusercontent.com/Neutron84/Arch_gate/refs/heads/main/gate.sh | sudo bash -s -- --enable-interrupt
-```
+## ✨ Key Features
 
-This downloads and runs the lightweight launcher `gate.sh`, which clones the full project to `/tmp/arch-gate` and starts Stage 1.
+-   **🖥️ Hardware-Aware Installation:** Automatically detects your storage type (`SSD`, `HDD`, `USB`, `SD Card`) and applies specific optimizations.
+-   **⚙️ Two-Stage Architecture:** A lightweight **Stage 1** runs in the live environment, while a robust **Stage 2** completes the installation on the first boot, overcoming memory limitations.
+-   **🛡️ Atomic Updates & Rollback:** Inspired by modern cloud systems, Arch Gate uses a read-only root filesystem (`EROFS`/`Squashfs`) with an overlay, ensuring that system updates are atomic and can be safely rolled back.
+-   **🔌 Hybrid Boot for Portables:** Automatically configures `GRUB` for both **UEFI** and **Legacy BIOS**, making your portable systems universally bootable.
+-   **🧠 Advanced Safety & Recovery:** Includes a suite of `systemd` services to protect your data, such as an I/O health monitor, power failure detector, and automatic snapshotting.
+-   **🚀 Performance Tuned:** Comes with dynamic memory optimization (ZRAM/ZSWAP), smart application prefetching, and hardware-specific profiles out of the box.
 
-Stage 1 highlights
-- Choose system type: `ssd`, `hdd`, `ssd_external`, `hdd_external`, `usb_memory`, `sdcard`.
-- Partition scheme: Hybrid (recommended for portable), GPT, or MBR.
-- Filesystem: `bcachefs` (recommended), `ext4`, or `f2fs`.
+---
 
-Stage 2 highlights
-- Configures overlay root (EROFS/Squashfs) and persistent `/home`.
-- Enables atomic update system with rollback and integrity checks.
-- Installs safety services (I/O health, enforced sync, snapshots, telemetry, power-failure detector).
-- Tunes memory (ZRAM/ZSWAP) and applies advanced optimizations (bcachefs, prefetch, hardware profile, I/O optimizer).
-- Installs GRUB hybrid for portable systems and writes advanced boot menus.
+## 🚀 Auto clone and install
 
-Important notes
-- This script performs destructive operations (drive partitioning, filesystem creation). Ensure you target the correct device and have backups.
-- Portable targets use hybrid boot and overlay root with read-only images to improve robustness.
+>[!CAUTION] 
+>This script will partition and format your target disk. All data will be permanently lost. Please double-check your device path.
 
-Package cache cleaning (space-saving behavior)
+1.  **Boot into a fresh Arch Linux live environment.**
+    -   *Need help? Follow the [Guide to Creating an Arch Linux Live USB](./guides/create_live_boot.md).*
 
-To keep the USB image small the installer includes automatic package cache management. You can configure behavior by setting environment variables before running the installer or editing the top of `/lib/packages.sh`:
+2.  **Establish an internet connection.** The installer needs to download packages.
+    -   *For detailed steps, see the [Guide to Connecting to the Internet in Arch Live](./guides/connect_internet.md).*
 
-- `AUTO_CLEAN_CACHE` (default: `true`) — enable/disable automatic cache cleaning.
-- `CACHE_CLEAN_STRATEGY` (default: `immediate`) — `immediate|batch|smart`.
-- `CACHE_BATCH_THRESHOLD` (default: `5`) — number of successful installs before a batch clean (only used with `batch`).
+3.  **Run the Arch Gate launcher.**
+    Copy and paste the following command into your terminal:
+    ```bash
+    curl -sL https://raw.githubusercontent.com/Neutron84/Arch_gate/main/gate.sh | sudo bash
+    ```
+    This will download the launcher, which clones the full project and starts the interactive installer.
 
-Examples
-
-```bash
-# Disable automatic cache cleaning
-export AUTO_CLEAN_CACHE=false
-
-# Use batch cleaning every 10 packages
-export CACHE_CLEAN_STRATEGY=batch
-export CACHE_BATCH_THRESHOLD=10
-
-# Use smart cleaning (clean only for large packages)
-export CACHE_CLEAN_STRATEGY=smart
-```
-
-Where to read more
-- Full manual & reference: `MANUAL.md` (includes atomic update commands, services, overlay details, and troubleshooting).
-- Logs: Stage 2 `/var/log/archgate/stage2.log`, atomic updates `/var/log/atomic-updates.log`.
-
-Security & safety checklist
-- Double-check the target device before running the installer (use `lsblk` and `blkid`).
-- Create a snapshot before performing large operations when possible (`atomic-snapshot pre-update` on the installed system).
-
-Contributing
-- If you'd like to contribute, open issues or PRs against this repo. Please run `shellcheck` on any bash patches you submit.
+4.  **(Optional but Highly Recommended) Connect via SSH.**
+    -   After connecting to the internet, you can control the installation from another computer for a much better experience (copy-paste, etc.).
+    -   *Learn how: [Guide to Using SSH with Arch Live](./guides/using_ssh.md).*
 
 
+---
 
+## 🔧 The Installation Process
 
+### Stage 1: The Interactive Bootstrap
 
+The initial script will guide you through a series of questions to build a configuration tailored to your needs:
 
+1.  **System Type Selection:** Choose between internal storage (`SSD`/`HDD`) or portable media.
+2.  **Disk Selection:** Select the target device (e.g., `/dev/sda`).
+3.  **Partition Scheme:** Choose between `Hybrid` (recommended for portables), `GPT` (UEFI-only), or `MBR`.
+4.  **Filesystem:** Select `bcachefs` (recommended), `ext4`, or `f2fs`.
+5.  **User & System Setup:** Configure your hostname, passwords (securely hashed), timezone, and locale.
+6.  **Software Selection:** Choose which software groups you want to install (Desktop, Dev Tools, etc.).
+
+Once Stage 1 is complete, you can reboot into your new minimal system.
+
+<!-- ![Stage 1 Demo](URL_TO_STAGE1_DEMO.gif) -->
+
+### Stage 2: The First Boot Provisioning
+
+On the first boot, a `systemd` service will automatically take over and complete the installation non-interactively:
+
+-   Installs all the software you selected.
+-   Configures the advanced features (OverlayFS, Atomic Updates, Optimizations).
+-   Sets up the GRUB bootloader with advanced menu entries.
+-   Cleans up after itself and reboots into your fully functional system.
+
+---
+
+## 📖 Full Documentation
+
+For a deep dive into all the features, commands, and runtime services, please refer to the **[USER MANUAL](./MANUAL.md)**.
+
+## 🤝 Contributing
+
+Contributions are welcome! If you'd like to help, please open an issue to discuss your idea or submit a pull request. All shell scripts are checked with `shellcheck`.
+
+## 📜 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
