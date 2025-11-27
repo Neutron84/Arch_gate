@@ -126,10 +126,35 @@ check_prereqs() {
 	local missing=()
 	command -v curl >/dev/null 2>&1 || missing+=(curl)
 	command -v git  >/dev/null 2>&1 || missing+=(git)
+
 	if ((${#missing[@]})); then
-		fail "Missing prerequisites: ${missing[*]}"
-		warn "Install them and retry. On Arch: pacman -Sy --needed ${missing[*]}"
-		exit 1
+		info "Missing prerequisites: ${missing[*]}. Attempting to install..."
+
+		if command -v pacman >/dev/null 2>&1; then
+			info "Detected pacman. Installing..."
+			pacman -Sy --needed --noconfirm "${missing[@]}"
+		elif command -v apt-get >/dev/null 2>&1; then
+			info "Detected apt-get. Installing..."
+			apt-get update && apt-get install -y "${missing[@]}"
+		elif command -v dnf >/dev/null 2>&1; then
+			info "Detected dnf. Installing..."
+			dnf install -y "${missing[@]}"
+		else
+			fail "Could not find a supported package manager (pacman, apt-get, dnf)."
+			warn "Please install the following prerequisites manually: ${missing[*]}"
+			exit 1
+		fi
+
+		# Re-check to ensure they were actually installed
+		local still_missing=()
+		command -v curl >/dev/null 2>&1 || still_missing+=(curl)
+		command -v git  >/dev/null 2>&1 || still_missing+=(git)
+		if ((${#still_missing[@]})); then
+			fail "Installation failed for: ${still_missing[*]}. Please install them manually."
+			exit 1
+		else
+			success "Prerequisites installed."
+		fi
 	fi
 }
 
