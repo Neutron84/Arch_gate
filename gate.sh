@@ -46,6 +46,30 @@ acquire_lock() {
     export LOCKFILE_PATH="$lockfile"
 }
 
+prepare_environment_hack() {
+    info "Applying Live Environment Hacks (ZRAM + COW Resize)..."
+
+    # 1. Load ZRAM for compression efficiency
+    if modprobe zram; then
+        # Create a 8GB ZRAM device (doesn't use RAM until needed)
+        echo 8G > /sys/block/zram0/disksize
+        mkswap /dev/zram0 >/dev/null
+        swapon /dev/zram0 -p 100
+        success "ZRAM enabled (8GB swap)"
+    else
+        warn "Could not load ZRAM module"
+    fi
+
+    # 2. Resize COW space dynamically
+    # Get 75% of Total RAM size to differeniate betwen low/high RAM systems
+    # Or just force a static 4G/8G if you know the hardware
+    if mount -o remount,size=6G /run/archiso/cowspace; then
+         success "COW space resized to 6GB"
+    else
+         warn "Failed to resize COW space"
+    fi
+}
+
 # Unified cleanup function for all signals
 cleanup() {
     local signal="${1:-EXIT}"
@@ -156,6 +180,7 @@ run_stage1() {
 main() {
 	require_root
 	acquire_lock
+	prepare_environment_hack
 	check_prereqs
 	prepare_workdir
 	clone_repo

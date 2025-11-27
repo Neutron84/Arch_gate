@@ -16,6 +16,8 @@ This guide shows you how to create a bootable USB drive from the official Arch L
 4.  Click **"Select target"** and carefully choose your USB drive. **Double-check this step!**
 5.  Click **"Flash!"** and wait for the process to complete.
 
+![Etcher](Etcher.gif)
+
 Your bootable Arch Linux USB is now ready. You can use it to boot your computer and start the Arch Gate installation.````
 
 
