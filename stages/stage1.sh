@@ -224,7 +224,7 @@ while true; do
         2)
             CONFIG[filesystem_type]="btrfs"
             # Load Btrfs module
-            source "$ARCHGATE_DIR/archgate/lib/btrfs.sh"
+            source "$ARCHGATE_DIR/lib/btrfs.sh"
             
             # Run configuration. If returns 1 (Back), loop continues
             if configure_btrfs; then

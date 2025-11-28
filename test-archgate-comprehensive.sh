@@ -5,6 +5,10 @@ set -u
 # Locate library dir and source helpers if available
 _ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _LIB_DIR="${_ROOT_DIR}/lib"
+if [[ -f "${_LIB_DIR}/colors.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "${_LIB_DIR}/colors.sh" || true
+fi
 if [[ -f "${_LIB_DIR}/utils.sh" ]]; then
     # shellcheck source=/dev/null
     source "${_LIB_DIR}/utils.sh" || true
