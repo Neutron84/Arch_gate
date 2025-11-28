@@ -14,6 +14,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$PROJECT_ROOT/lib"
+ARCHGATE_DIR="$PROJECT_ROOT"
+
 
 # Function to safely load library files
 # shellcheck disable=SC1090
