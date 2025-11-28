@@ -50,7 +50,7 @@ prepare_environment_hack() {
     info "Applying Live Environment Hacks (ZRAM + COW Resize)..."
 
     # 1. Load ZRAM for compression efficiency
-    if modprobe zram; then
+    if modprobe zram >/dev/null 2>&1; then
         # Create a 8GB ZRAM device (doesn't use RAM until needed)
         echo 8G > /sys/block/zram0/disksize
         mkswap /dev/zram0 >/dev/null
@@ -81,7 +81,7 @@ cleanup() {
     fi
     export CLEANUP_DONE=true
     
-    echo -e "\n[INFO] Cleaning up..."
+    echo -e "\n[INFO] Cleaning up..." >/dev/tty
     
     # Remove lockfile
     if [[ -n "${LOCKFILE_PATH:-}" ]] && [[ -f "${LOCKFILE_PATH}" ]]; then
@@ -95,7 +95,7 @@ cleanup() {
     
     # Set appropriate exit code for signals
     if [[ "$signal" == "INT" || "$signal" == "TERM" ]]; then
-        echo "[INFO] Installation cancelled by user"
+        echo "[INFO] Installation cancelled by user" >/dev/tty
         exit_code=130
     fi
     
@@ -110,10 +110,10 @@ trap 'cleanup EXIT' EXIT
 
 set -o monitor
 
-info()  { echo "[INFO]  $*"; }
-success(){ echo "[OK]    $*"; }
-warn()  { echo "[WARN]  $*"; }
-fail()  { echo "[ERROR] $*" >&2; }
+info()  { echo "[INFO]  $*" >/dev/tty; }
+success(){ echo "[OK]    $*" >/dev/tty; }
+warn()  { echo "[WARN]  $*" >/dev/tty; }
+fail()  { echo "[ERROR] $*" >/dev/tty; }
 
 require_root() {
 	if [[ $EUID -ne 0 ]]; then
