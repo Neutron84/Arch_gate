@@ -3,16 +3,19 @@
 # PACKAGE MANAGEMENT SYSTEM - Supports pacman, pacstrap, and AUR
 # =============================================================================
 
-# Dependencies are handled by loader.sh in production.
-# This block is only for standalone testing.
-if [[ -z "${MODULE_LOADED[loader]:-}" ]]; then
-    _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${0}}")" && pwd)"
-    [[ -f "$_LIB_DIR/colors.sh" ]] && source "$_LIB_DIR/colors.sh"
-    [[ -f "$_LIB_DIR/logging.sh" ]] && source "$_LIB_DIR/logging.sh"
-    [[ -f "$_LIB_DIR/utils.sh" ]] && source "$_LIB_DIR/utils.sh"
-    [[ -f "$_LIB_DIR/pacman-utils.sh" ]] && source "$_LIB_DIR/pacman-utils.sh"
-    [[ -f "$_LIB_DIR/recovery.sh" ]] && source "$_LIB_DIR/recovery.sh"
+ Include guard
+if [[ -n "${_ARCHGATE_PACKAGES_SH_LOADED:-}" ]]; then
+  return 0
 fi
+_ARCHGATE_PACKAGES_SH_LOADED=true
+
+# Source dependencies (safe method)
+# only load if not already loaded
+if [[ -z "${_ARCHGATE_COLORS_SH_LOADED:-}" ]] && [[ -f "$_LIB_DIR/colors.sh" ]]; then source "$_LIB_DIR/colors.sh"; fi
+if [[ -z "${_ARCHGATE_LOGGING_SH_LOADED:-}" ]] && [[ -f "$_LIB_DIR/logging.sh" ]]; then source "$_LIB_DIR/logging.sh"; fi
+if [[ -z "${_ARCHGATE_UTILS_SH_LOADED:-}" ]] && [[ -f "$_LIB_DIR/utils.sh" ]]; then source "$_LIB_DIR/utils.sh"; fi
+if [[ -z "${_ARCHGATE_PACMAN_UTILS_SH_LOADED:-}" ]] && [[ -f "$_LIB_DIR/pacman-utils.sh" ]]; then source "$_LIB_DIR/pacman-utils.sh"; fi
+if [[ -z "${_ARCHGATE_RECOVERY_SH_LOADED:-}" ]] && [[ -f "$_LIB_DIR/recovery.sh" ]]; then source "$_LIB_DIR/recovery.sh"; fi
 
 # Global variables for package management
 PACKAGE_MANAGER="pacman"

@@ -9,6 +9,13 @@
 # - Sysctl memory optimizations
 # - Modprobe ZSWAP configuration
 
+
+# Include guard
+if [[ -n "${_ARCHGATE_MEMORY_SH_LOADED:-}" ]]; then
+  return 0
+fi
+_ARCHGATE_MEMORY_SH_LOADED=true
+
 # Source required modules (use BASH_SOURCE for reliable path when sourced)
 _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${0}}")" && pwd)"
 [[ -f "$_LIB_DIR/colors.sh" ]] && source "$_LIB_DIR/colors.sh"

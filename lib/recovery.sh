@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Recovery utilities for Arch_gate: create and list recovery points
 
+
+# Include guard
+if [[ -n "${_ARCHGATE_RECOVERY_SH_LOADED:-}" ]]; then
+  return 0
+fi
+_ARCHGATE_RECOVERY_SH_LOADED=true
+
 _RECOVERY_DIR="/var/lib/archgate/recovery"
 
 mkdir -p "${_RECOVERY_DIR}" 2>/dev/null || true

@@ -3,6 +3,13 @@
 # UTILITY FUNCTIONS
 # =============================================================================
 
+
+# Include guard
+if [[ -n "${_ARCHGATE_UTILS_SH_LOADED:-}" ]]; then
+  return 0
+fi
+_ARCHGATE_UTILS_SH_LOADED=true
+
 # Handle Ctrl+C and cleanup
 trap 'echo; print_failed "Script interrupted by user. Cleaning up..."; cleanup_on_exit; exit 1' INT TERM
 trap 'cleanup_on_exit' EXIT

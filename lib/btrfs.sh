@@ -2,6 +2,11 @@
 # =============================================================================
 # BTRFS SUBVOLUME MANAGEMENT MODULE
 # =============================================================================
+ Include guard
+if [[ -n "${_ARCHGATE_BTRFS_SH_LOADED:-}" ]]; then
+  return 0
+fi
+_ARCHGATE_BTRFS_SH_LOADED=true
 
 # Default mount options
 DEFAULT_BTRFS_OPTS="rw,noatime,compress=zstd:3,ssd,space_cache=v2"

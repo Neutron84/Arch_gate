@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Helpers for safe pacman operations: lock handling, disk checks, and safe installs
 
+
+# Include guard
+if [[ -n "${_ARCHGATE_PACMAN_UTILS_SH_LOADED:-}" ]]; then
+  return 0
+fi
+_ARCHGATE_PACMAN_UTILS_SH_LOADED=true
+
 # Wait for or remove pacman lock safely
 safe_handle_pacman_lock() {
     local timeout=${1:-300} # seconds to wait for other pacman processes

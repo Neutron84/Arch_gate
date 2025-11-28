@@ -4,6 +4,12 @@
 # =============================================================================
 # Provides safe and reliable module loading with dependency tracking
 
+# Include guard
+if [[ -n "${_ARCHGATE_LOADER_SH_LOADED:-}" ]]; then
+  return 0
+fi
+_ARCHGATE_LOADER_SH_LOADED=true
+
 # Track loaded modules to prevent duplicate loading
 declare -gA MODULE_LOADED=()
 

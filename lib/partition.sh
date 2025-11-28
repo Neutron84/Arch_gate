@@ -3,6 +3,13 @@
 # PARTITION AND FILESYSTEM MANAGEMENT
 # =============================================================================
 
+
+# Include guard
+if [[ -n "${_ARCHGATE_PARTITION_SH_LOADED:-}" ]]; then
+  return 0
+fi
+_ARCHGATE_PARTITION_SH_LOADED=true
+
 # Source required modules
 _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${0}}")" && pwd)"
 [[ -f "$_LIB_DIR/colors.sh" ]] && source "$_LIB_DIR/colors.sh"

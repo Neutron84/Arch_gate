@@ -2,6 +2,11 @@
 # =============================================================================
 # COLOR DEFINITION SYSTEM
 # =============================================================================
+# Include guard
+if [[ -n "${_ARCHGATE_COLORS_SH_LOADED:-}" ]]; then
+  return 0
+fi
+_ARCHGATE_COLORS_SH_LOADED=true
 
 if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
     ncolors=$(tput colors 2>/dev/null || echo 0)

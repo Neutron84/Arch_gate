@@ -7,6 +7,13 @@
 # - Hook integration (snap-pac)
 # - Subvolume handling for snapshots
 
+
+# Include guard
+if [[ -n "${_ARCHGATE_SNAPSHOT_SH_LOADED:-}" ]]; then
+  return 0
+fi
+_ARCHGATE_SNAPSHOT_SH_LOADED=true
+
 # Setup Snapper for Btrfs
 setup_snapper() {
     local mount_point="${1:-/}"  # Default to root if not specified
