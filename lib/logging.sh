@@ -38,25 +38,25 @@ _log_level_to_num() {
     case "$level_key" in
         "DEBUG")
             level_value=10
-            ;;
+        ;;
         "INFO")
             level_value=20
-            ;;
+        ;;
         "NOTICE")
             level_value=25
-            ;;
+        ;;
         "WARN")
             level_value=30
-            ;;
+        ;;
         "ERROR")
             level_value=40
-            ;;
+        ;;
         "CRITICAL")
             level_value=50
-            ;;
+        ;;
         *)
             level_value="$default_level"
-            ;;
+        ;;
     esac
     
     echo "$level_value"
@@ -101,14 +101,14 @@ init_logger() {
         echo "Error: Cannot create log directory $(dirname "$LOG_FILE")" >&2
         return 1
     }
-
+    
     _rotate_if_needed
-
+    
     eval "exec ${_LOG_FD}>>\"$LOG_FILE\"" || {
         echo "Warning: cannot open log file $LOG_FILE for append; logging to stdout only" >&2
         _LOG_FD=1
     }
-
+    
     _LOG_INITIALIZED=1
     trap 'close_logger' EXIT INT TERM
     
@@ -136,15 +136,15 @@ _log_write() {
     if [[ ${FUNCNAME[2]+_} ]]; then
         caller_info="${FUNCNAME[2]}:${BASH_LINENO[1]}"
     fi
-
+    
     local line="[${ts}] ${level} [pid:${pid}] ${caller_info:+(${caller_info}) }${msg}"
-
+    
     if (( _LOG_INITIALIZED )) && [[ $_LOG_FD -ne 1 ]]; then
         printf '%s\n' "$line" >&"${_LOG_FD}" || true
     else
         printf '%s\n' "$line"
     fi
-
+    
     if (( SYSLOG_ENABLED )); then
         local pri="user.info"
         case "$level" in
@@ -194,14 +194,14 @@ print_log_console() {
     local color_prefix
     color_prefix="$(_level_color_prefix "$level")"
     local reset="${NC}"
-
+    
     if [ -t 1 ]; then
         # Use %b for the message to interpret embedded escapes (e.g., \033[1m)
         printf '%b%b%b\n' "${color_prefix}" "${msg}" "${reset}"
     else
         printf '%s\n' "$msg"
     fi
-
+    
     case "${level^^}" in
         DEBUG)    log_debug "$msg"    ;;
         "INFO")  log_info "$msg"     ;;
@@ -214,12 +214,12 @@ print_log_console() {
 }
 
 # Enhanced print functions with logging
-print_success() { print_log_console "NOTICE" "[✓] $*"; }
-print_msg()     { print_log_console "INFO" "[-] $*"; }
-print_warn()    { print_log_console "WARN" "[!] $*"; }
-print_failed()  { print_log_console "ERROR" "[✗] $*"; }
-print_debug()   { print_log_console "DEBUG" "[#] $*"; }
-print_critical(){ print_log_console "CRITICAL" "[‼] $*"; }
+print_success() { print_log_console "NOTICE" "[OK] $*"; }
+print_msg()     { print_log_console "INFO" "[INFO] $*"; }
+print_warn()    { print_log_console "WARN" "[WARNING] $*"; }
+print_failed()  { print_log_console "ERROR" "[FAILED] $*"; }
+print_debug()   { print_log_console "DEBUG" "[DEBUG] $*"; }
+print_critical(){ print_log_console "CRITICAL" "[CRITICAL] $*"; }
 
 ########################
 # Control helpers      #
@@ -259,10 +259,10 @@ error_handler() {
     local exit_code=${1:-$?}
     local lineno=${2:-${BASH_LINENO[0]:-0}}
     local cmd=${3:-${BASH_COMMAND:-}}
-
+    
     # Log the immediate failure
     log_error "Command failed: ${cmd} (line: ${lineno}, exit: ${exit_code})"
-
+    
     # Log stack trace
     log_debug "Stack trace (most recent call last):"
     local i=0
@@ -272,17 +272,17 @@ error_handler() {
         log_debug "  ${call}"
         i=$((i + 1))
     done
-
+    
     # Dump environment snapshot (safe amount)
     log_debug "Environment snapshot (selected variables):"
     # Print a small set of well-known vars to avoid huge dumps
     log_debug "PWD=${PWD:-}":
     log_debug "USER=${USER:-}":
     log_debug "SHELL=${SHELL:-}":
-
+    
     # Optionally keep the logger open briefly to flush
     sleep 0.05
-
+    
     # Re-raise the exit
     exit "$exit_code"
 }
@@ -291,16 +291,16 @@ error_handler() {
 setup_advanced_logging() {
     # Ensure logger initialized
     init_logger || return 1
-
+    
     # Use -E to allow ERR trap to be inherited by functions
     set -o errtrace
     # Trap ERR and run our handler; pass exit code, line and command
     trap 'error_handler $? ${LINENO} "${BASH_COMMAND}"' ERR
-
+    
     # Make sure to capture unhandled SIGs to log them too
     trap 'log_warn "Script interrupted by SIGINT"; close_logger; exit 130' INT
     trap 'log_warn "Script terminated by SIGTERM"; close_logger; exit 143' TERM
-
+    
     print_msg "Advanced logging and error handler set"
 }
 

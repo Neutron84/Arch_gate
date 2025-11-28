@@ -83,39 +83,39 @@ cat > /etc/systemd/zram-generator.conf.d/zram.conf <<ZRAM
 zram-size = ${final_zram}M
 compression-algorithm = zstd
 EOF-swapfile = false
-swap-priority = 100
-ZRAM
-
-# Set swappiness
-echo "vm.swappiness=$swappiness" > /etc/sysctl.d/99-memory.conf
-
-# Additional memory settings based on RAM
-if [ $total_mem_mb -le 2048 ]; then
-    # Low RAM systems
+    swap-priority = 100
+    ZRAM
+    
+    # Set swappiness
+    echo "vm.swappiness=$swappiness" > /etc/sysctl.d/99-memory.conf
+    
+    # Additional memory settings based on RAM
+    if [ $total_mem_mb -le 2048 ]; then
+        # Low RAM systems
     cat >> /etc/sysctl.d/99-memory.conf <<MEM
 vm.vfs_cache_pressure=200
 vm.page-cluster=0
 vm.dirty_ratio=10
 vm.dirty_background_ratio=5
 MEM
-elif [ $total_mem_mb -le 4096 ]; then
-    # Medium RAM systems
+        elif [ $total_mem_mb -le 4096 ]; then
+        # Medium RAM systems
     cat >> /etc/sysctl.d/99-memory.conf <<MEM
 vm.vfs_cache_pressure=150
 vm.page-cluster=1
 vm.dirty_ratio=15
 vm.dirty_background_ratio=8
 MEM
-elif [ $total_mem_mb -le 8192 ]; then
-    # High RAM systems
+        elif [ $total_mem_mb -le 8192 ]; then
+        # High RAM systems
     cat >> /etc/sysctl.d/99-memory.conf <<MEM
 vm.vfs_cache_pressure=100
 vm.page-cluster=2
 vm.dirty_ratio=20
 vm.dirty_background_ratio=10
 MEM
-else
-    # Very high RAM systems
+    else
+        # Very high RAM systems
     cat >> /etc/sysctl.d/99-memory.conf <<MEM
 vm.min_free_kbytes=$((256 * 1024))
 vm.zone_reclaim_mode=0
@@ -125,9 +125,9 @@ vm.page-cluster=3
 vm.dirty_ratio=30
 vm.dirty_background_ratio=15
 MEM
-fi
-
-# Advanced zswap settings in modprobe
+    fi
+    
+    # Advanced zswap settings in modprobe
 cat > /etc/modprobe.d/zswap.conf <<ZSWAP
 # Enable ZSWAP
 options zswap enabled=$zswap_enabled
@@ -144,10 +144,10 @@ options zswap zpool=z3fold
 # Compression threshold (only pages larger than 50KB are compressed)
 options zswap threshold=51200
 ZSWAP
-
-# Apply settings
-sysctl -p /etc/sysctl.d/99-memory.conf
-EOF
+    
+    # Apply settings
+    sysctl -p /etc/sysctl.d/99-memory.conf
+    EOF
     
     chmod +x "$chroot_dir/usr/local/bin/configure-memory"
     

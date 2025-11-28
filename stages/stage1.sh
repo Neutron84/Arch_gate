@@ -157,7 +157,7 @@ while true; do
     if ! validate_block_device "$DEVICE"; then
         continue
     fi
-
+    
     # Check if device is mounted as root or contains system directories
     if mountpoint -q / && [[ "$(findmnt -n -o SOURCE /)" == "$DEVICE"* ]]; then
         print_failed "Error: $DEVICE contains the root filesystem and cannot be used"
@@ -204,20 +204,41 @@ case "$part_scheme" in
 esac
 
 # Filesystem selection
-banner
-print_msg "${BOLD}Select filesystem type:${NC}"
-echo
-echo "${Y}1. bcachefs (Modern, recommended)${NC}"
-echo "${Y}2. ext4 (Stable, widely supported)${NC}"
-echo "${Y}3. f2fs (Optimized for flash storage)${NC}"
-echo
-# shellcheck disable=SC2034
-select_an_option 3 1 fs_type
-case "$fs_type" in
-    1) CONFIG[filesystem_type]="bcachefs" ;;
-    2) CONFIG[filesystem_type]="ext4" ;;
-    3) CONFIG[filesystem_type]="f2fs" ;;
-esac
+while true; do
+    banner
+    print_msg "${BOLD}Select filesystem type:${NC}"
+    echo
+    echo "${Y}1. bcachefs (Modern, Copy-on-Write, Caching)${NC}"
+    echo "${Y}2. btrfs    (Modern, Snapshots, Checksums)${NC}"
+    echo "${Y}3. ext4     (Standard, Stable, reliable)${NC}"
+    echo "${Y}4. f2fs     (Optimized for Flash/SSD/USB)${NC}"
+    echo "${Y}5. xfs      (High Performance, Scalable)${NC}"
+    echo
+    
+    select_an_option 5 1 fs_choice_num
+    
+    case "$fs_choice_num" in
+        1) CONFIG[filesystem_type]="bcachefs"; break ;;
+        2)
+            CONFIG[filesystem_type]="btrfs"
+            # Load Btrfs module
+            source "$ARCHGATE_DIR/archgate/lib/btrfs.sh"
+            
+            # Run configuration. If returns 1 (Back), loop continues
+            if configure_btrfs; then
+                # Save the layout now
+                check_and_create_directory "/etc/archgate"
+                save_btrfs_config
+                break
+            else
+                continue # Go back to list
+            fi
+        ;;
+        3) CONFIG[filesystem_type]="ext4"; break ;;
+        4) CONFIG[filesystem_type]="f2fs"; break ;;
+        5) CONFIG[filesystem_type]="xfs"; break ;;
+    esac
+done
 
 # System configuration
 banner
@@ -485,49 +506,74 @@ pacman-key --init 2>/dev/null
 pacman-key --populate archlinux 2>/dev/null
 pacman -Sy --noconfirm 2>/dev/null || print_warn "Repository update had issues"
 
-# Install filesystem tools if needed
+# ------------------------------------------------------
+# Filesystem Tools Installation
+# ------------------------------------------------------
+print_msg "Installing filesystem tools for ${CONFIG[filesystem_type]}..."
+
+FS_TOOLS=""
+case "${CONFIG[filesystem_type]}" in
+    bcachefs) FS_TOOLS="bcachefs-tools dkms linux-headers" ;;
+    f2fs)     FS_TOOLS="f2fs-tools" ;;
+    btrfs)    FS_TOOLS="btrfs-progs" ;;
+    xfs)      FS_TOOLS="xfsprogs" ;;
+    *)        FS_TOOLS="" ;; # ext4 tools (e2fsprogs) are usually built-in
+esac
+
+if [[ -n "$FS_TOOLS" ]]; then
+    if ! package_install_and_check "$FS_TOOLS"; then
+        print_warn "Failed to install tools for ${CONFIG[filesystem_type]}. Setup might fail."
+        # Note: We don't exit here immediately, we let the format step fail if tools are missing
+        # except for bcachefs which needs special handling below.
+    fi
+fi
+
+# ------------------------------------------------------
+# Special Handling for Bcachefs (DKMS & Module Loading)
+# ------------------------------------------------------
 if [[ "${CONFIG[filesystem_type]}" == "bcachefs" ]]; then
-    print_msg "Installing bcachefs-tools..."
-    if ! package_install_and_check "bcachefs-tools dkms linux-headers"; then
-        print_warn "bcachefs-tools installation failed, falling back to ext4"
+    # Check if bcachefs module already exists
+    if ! modinfo bcachefs &>/dev/null; then
+        print_msg "bcachefs module not available in kernel. Attempting DKMS build..."
+        
+        # Try installing from AUR if official repo fail handled by package_install_and_check above
+        # Here we assume packages are installed, proceed to build
+        
+        # Run dkms manually to ensure module installation
+        dkms_output=$(dkms autoinstall 2>&1) || dkms_status=$?
+        dkms_status=${dkms_status:-0}
+        
+        if [[ $dkms_status -ne 0 ]]; then
+            print_warn "DKMS build failed (exit code: $dkms_status)."
+            print_warn "bcachefs kernel module requires kernel source matching live environment."
+        fi
+    fi
+    
+    # Attempt to load bcachefs module with diagnostic info
+    if ! modprobe bcachefs 2>/dev/null; then
+        modprobe_err=$(modprobe bcachefs 2>&1 || true)
+        print_warn "Could not load bcachefs module"
+        print_warn "Reason: $modprobe_err"
+        print_warn "Falling back to ext4 filesystem"
+        
+        # FALLBACK LOGIC
         CONFIG[filesystem_type]="ext4"
         save_config
     else
-        # Try to load bcachefs module
-        if ! modinfo bcachefs &>/dev/null; then
-            print_msg "Building bcachefs module with DKMS..."
-            dkms_output=$(dkms autoinstall 2>&1) || dkms_status=$?
-            dkms_status=${dkms_status:-0}
-            if [[ $dkms_status -ne 0 ]]; then
-                print_warn "DKMS build failed (exit code: $dkms_status). bcachefs may not be available in this environment."
-                print_warn "Note: bcachefs kernel module requires kernel source matching live environment."
-            fi
-        fi
-        
-        # Attempt to load bcachefs module with diagnostic info
-        if ! modprobe bcachefs 2>/dev/null; then
-            modprobe_err=$(modprobe bcachefs 2>&1 || true)
-            print_warn "Could not load bcachefs module"
-            print_warn "Reason: $modprobe_err"
-            print_warn "Falling back to ext4 filesystem"
-            CONFIG[filesystem_type]="ext4"
-            save_config
-        else
-            print_success "bcachefs module loaded successfully"
-        fi
+        print_success "bcachefs module loaded successfully"
     fi
 fi
 
 # Format partitions
 print_msg "Formatting partitions..."
-if ! format_partitions "$DEVICE" "${CONFIG[storage_type]}" "${CONFIG[filesystem_type]}"; then
+if ! format_partitions "$DEVICE" "${CONFIG[storage_type]}" "${CONFIG[filesystem_type]}" "${CONFIG[partition_scheme]}"; then
     print_failed "Failed to format partitions"
     exit 1
 fi
 
 # Mount partitions
 print_msg "Mounting partitions..."
-if ! mount_partitions "$DEVICE" "${CONFIG[mount_point]}"; then
+if ! mount_partitions "$DEVICE" "${CONFIG[mount_point]}" "${CONFIG[partition_scheme]}"; then
     print_failed "Failed to mount partitions"
     exit 1
 fi

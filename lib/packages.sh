@@ -3,13 +3,16 @@
 # PACKAGE MANAGEMENT SYSTEM - Supports pacman, pacstrap, and AUR
 # =============================================================================
 
-# Source required modules (use BASH_SOURCE for reliable path when sourced)
-_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${0}}")" && pwd)"
-[[ -f "$_LIB_DIR/colors.sh" ]] && source "$_LIB_DIR/colors.sh"
-[[ -f "$_LIB_DIR/logging.sh" ]] && source "$_LIB_DIR/logging.sh"
-[[ -f "$_LIB_DIR/utils.sh" ]] && source "$_LIB_DIR/utils.sh"
-[[ -f "$_LIB_DIR/pacman-utils.sh" ]] && source "$_LIB_DIR/pacman-utils.sh"
-[[ -f "$_LIB_DIR/recovery.sh" ]] && source "$_LIB_DIR/recovery.sh"
+# Dependencies are handled by loader.sh in production.
+# This block is only for standalone testing.
+if [[ -z "${MODULE_LOADED[loader]:-}" ]]; then
+    _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${0}}")" && pwd)"
+    [[ -f "$_LIB_DIR/colors.sh" ]] && source "$_LIB_DIR/colors.sh"
+    [[ -f "$_LIB_DIR/logging.sh" ]] && source "$_LIB_DIR/logging.sh"
+    [[ -f "$_LIB_DIR/utils.sh" ]] && source "$_LIB_DIR/utils.sh"
+    [[ -f "$_LIB_DIR/pacman-utils.sh" ]] && source "$_LIB_DIR/pacman-utils.sh"
+    [[ -f "$_LIB_DIR/recovery.sh" ]] && source "$_LIB_DIR/recovery.sh"
+fi
 
 # Global variables for package management
 PACKAGE_MANAGER="pacman"

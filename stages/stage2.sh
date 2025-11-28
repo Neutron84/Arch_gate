@@ -176,6 +176,12 @@ fi
 
 print_msg "=== Configuring Advanced System Features ==="
 
+# Snapshot System Configuration (Snapper)
+# Only runs if filesystem is Btrfs (checked inside the function)
+if declare -F setup_snapper >/dev/null; then
+    setup_snapper "/"
+fi
+
 # Overlay hook and initramfs
 if declare -F setup_overlay_hook >/dev/null; then
     setup_overlay_hook "/" "/"

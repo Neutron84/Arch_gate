@@ -102,7 +102,7 @@ check_io_errors() {
 
     # Log the error count for debugging
     echo "$(date): Detected $error_count I/O errors in last ${check_interval}s" >> "$LOG_FILE"
-    
+
     if [ "$error_count" -gt "$MAX_IO_ERRORS" ]; then
         echo "$(date): ⚠️ Excessive I/O errors ($error_count) detected in last ${check_interval}s!" >> "$LOG_FILE"
         echo "$(date): Error details:" >> "$LOG_FILE"
@@ -123,7 +123,7 @@ switch_to_readonly() {
         "atomic-update.service"
         "system-snapshot.timer"
     )
-    
+
     for service in "${services_to_stop[@]}"; do
         if systemctl is-active "$service" &>/dev/null; then
             if systemctl stop "$service"; then
@@ -142,7 +142,7 @@ switch_to_readonly() {
         "/"
         "/persistent"
     )
-    
+
     for mount_point in "${partitions_to_remount[@]}"; do
         if mount | grep -q " on $mount_point "; then
             if mount -o remount,ro "$mount_point" 2>/dev/null; then
@@ -171,7 +171,7 @@ switch_to_readonly() {
     local error_message="⚠️ System switched to read-only mode due to I/O errors!\n"
     error_message+="Please check system logs (/var/log/io-health.log) for details.\n"
     error_message+="A filesystem check will be performed on next boot."
-    
+
     wall "$error_message"
 
     # Log the event with more details
@@ -184,12 +184,12 @@ switch_to_readonly() {
 monitoring_loop() {
     local retry_count=0
     local max_retries=3
-    
+
     while true; do
         if ! check_io_errors; then
             retry_count=$((retry_count + 1))
             echo "$(date): Error in monitoring cycle. Retry $retry_count of $max_retries" >> "$LOG_FILE"
-            
+
             if [ "$retry_count" -ge "$max_retries" ]; then
                 echo "$(date): ⚠️ Critical: Monitoring failed after $max_retries retries" >> "$LOG_FILE"
                 logger -t safety-system "Critical: I/O monitoring failed, system integrity might be compromised"
@@ -271,22 +271,22 @@ check_power_state() {
 handle_power_failure() {
     echo "$(date): Power failure detected! Initiating safe shutdown..." >> "$LOG_FILE"
     logger -t power-manager "Power failure detected - emergency procedures activated"
-    
+
     if [[ -x /usr/local/bin/enforced-sync ]]; then
         /usr/local/bin/enforced-sync
     fi
     mount -o remount,ro /persistent 2>/dev/null || true
-    
+
     wall "⚠️  Power failure detected! System is switching to safe mode."
 }
 
 while true; do
     current_state=$(check_power_state)
-    
+
     if [ "$LAST_STATE" = "ac" ] && [ "$current_state" = "battery" ]; then
         handle_power_failure
     fi
-    
+
     LAST_STATE=$current_state
     sleep 5
 done
@@ -413,7 +413,7 @@ collect_metrics() {
     local ram_usage=$(free -m | awk 'NR==2{printf "%.2f", $3*100/$2}' || echo "0")
     local swap_usage=$(free -m | awk 'NR==3{printf "%.2f", $3*100/$2}' || echo "0")
     local boot_time=$(systemd-analyze 2>/dev/null | awk '/Startup/ {print $3}' | tr -d 's' || echo "0")
-    
+
     echo "$timestamp,$io_ops,$rollback_count,$ram_usage,$swap_usage,$boot_time" >> "$METRICS_FILE"
 }
 

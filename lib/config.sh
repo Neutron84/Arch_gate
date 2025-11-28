@@ -126,7 +126,7 @@ save_config() {
         [[ -n "${CONFIG[stage]:-}" ]] && echo "STAGE=${CONFIG[stage]}"
         [[ -n "${CONFIG[mount_point]:-}" ]] && echo "MOUNT_POINT=${CONFIG[mount_point]}"
         
-    } > "$temp_file" 2>/dev/null || {
+        } > "$temp_file" 2>/dev/null || {
         print_failed "Failed to write temporary configuration file"
         rm -f "$temp_file" 2>/dev/null || true
         return 1
@@ -235,7 +235,7 @@ function print_to_config() {
     local var_value="${2:-${!var_name}}"
     local IFS=$' \t\n'
     local temp_file="${CONFIG_FILE}.tmp.$$"
-
+    
     # Ensure config file exists
     if [[ ! -f "$CONFIG_FILE" ]]; then
         touch "$CONFIG_FILE" 2>/dev/null || {
@@ -243,14 +243,14 @@ function print_to_config() {
             return 1
         }
     fi
-
+    
     if grep -q "^${var_name}=" "$CONFIG_FILE" 2>/dev/null; then
         # Atomic write: write to temp file then move
         sed "s|^${var_name}=.*|${var_name}=${var_value}|" "$CONFIG_FILE" >"$temp_file" && mv "$temp_file" "$CONFIG_FILE"
     else
         echo "${var_name}=${var_value}" >>"$CONFIG_FILE"
     fi
-
+    
     log_debug "$var_name = $var_value"
 }
 
@@ -260,12 +260,12 @@ function validate_required_vars() {
         print_failed "CONFIG array is not properly initialized"
         return 1
     fi
-
+    
     print_msg "Validating required configuration values..."
-
+    
     local missing_vars=()
     local warnings=()
-
+    
     # Required core configuration variables
     local required_config_keys=(
         # Storage and partitioning
@@ -285,25 +285,25 @@ function validate_required_vars() {
         # Installation stage
         "stage"
     )
-
+    
     # Check required CONFIG keys
     for key in "${required_config_keys[@]}"; do
         if [[ -z "${CONFIG[$key]:-}" ]]; then
             missing_vars+=("CONFIG[$key]")
         fi
     done
-
+    
     # Check required system variables
     local required_system_vars=(
         "CONFIG_FILE"
     )
-
+    
     for var in "${required_system_vars[@]}"; do
         if [[ -z "${!var:-}" ]]; then
             missing_vars+=("$var")
         fi
     done
-
+    
     # Optional configuration variables (warn if missing but don't fail)
     local optional_config_keys=(
         "install_desktop"
@@ -314,13 +314,13 @@ function validate_required_vars() {
         "install_amd"
         "install_intel"
     )
-
+    
     for key in "${optional_config_keys[@]}"; do
         if [[ -z "${CONFIG[$key]:-}" ]]; then
             warnings+=("CONFIG[$key] (optional, will default to 'n')")
         fi
     done
-
+    
     # Display warnings for optional variables
     if ((${#warnings[@]} > 0)); then
         print_warn "The following optional configuration values are not set (will use defaults):"
@@ -329,7 +329,7 @@ function validate_required_vars() {
             log_debug "Optional missing: $var"
         done
     fi
-
+    
     # Check for critical errors
     if ((${#missing_vars[@]} > 0)); then
         print_failed "The following required configuration values are not set:"
@@ -339,7 +339,7 @@ function validate_required_vars() {
         done
         return 1
     fi
-
+    
     # Additional validation: Check if device is a valid block device (if device is set)
     if [[ -n "${CONFIG[device]:-}" ]]; then
         if [[ ! -b "${CONFIG[device]}" ]]; then
@@ -347,46 +347,46 @@ function validate_required_vars() {
             log_warn "Device validation: ${CONFIG[device]} is not a block device"
         fi
     fi
-
+    
     # Validate stage value
     if [[ -n "${CONFIG[stage]:-}" ]]; then
         case "${CONFIG[stage]}" in
             1|2|completed)
                 log_debug "Stage validation: ${CONFIG[stage]} is valid"
-                ;;
+            ;;
             *)
                 print_warn "Stage value '${CONFIG[stage]}' is not a standard stage number"
                 log_warn "Stage validation: ${CONFIG[stage]} is non-standard"
-                ;;
+            ;;
         esac
     fi
-
+    
     # Validate filesystem type
     if [[ -n "${CONFIG[filesystem_type]:-}" ]]; then
         case "${CONFIG[filesystem_type]}" in
-            bcachefs|ext4|f2fs)
+            bcachefs|ext4|f2fs|btrfs|xfs)
                 log_debug "Filesystem validation: ${CONFIG[filesystem_type]} is supported"
-                ;;
+            ;;
             *)
                 print_warn "Filesystem type '${CONFIG[filesystem_type]}' may not be supported"
                 log_warn "Filesystem validation: ${CONFIG[filesystem_type]} is non-standard"
-                ;;
+            ;;
         esac
     fi
-
+    
     # Validate partition scheme
     if [[ -n "${CONFIG[partition_scheme]:-}" ]]; then
         case "${CONFIG[partition_scheme]}" in
             hybrid|gpt|mbr)
                 log_debug "Partition scheme validation: ${CONFIG[partition_scheme]} is supported"
-                ;;
+            ;;
             *)
                 print_warn "Partition scheme '${CONFIG[partition_scheme]}' may not be supported"
                 log_warn "Partition scheme validation: ${CONFIG[partition_scheme]} is non-standard"
-                ;;
+            ;;
         esac
     fi
-
+    
     print_success "All required configuration variables are set and validated"
     log_info "Configuration validation completed successfully"
     return 0

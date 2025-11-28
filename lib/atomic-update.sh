@@ -78,7 +78,7 @@ begin_transaction() {
 # Transaction commit function
 commit_transaction() {
     log "Committing transaction $TRANSACTION_ID"
-    
+
     # Force sync before commit
     sync
     if [[ -x /usr/local/bin/enforced-sync ]]; then
@@ -88,7 +88,7 @@ commit_transaction() {
     # Mark transaction as committed
     echo "committed" > "$TRANSACTION_DIR/$TRANSACTION_ID/status"
     echo "$(date)" > "$TRANSACTION_DIR/$TRANSACTION_ID/commit_time"
-    
+
     log "Transaction $TRANSACTION_ID successfully committed"
 }
 
@@ -115,23 +115,23 @@ rollback_transaction() {
     if [[ -f "${ESP_MOUNT}/arch/vmlinuz-linux.old" ]] && [[ -f "${ESP_MOUNT}/arch/initramfs-linux.img.old" ]]; then
         rm -f "${ESP_MOUNT}/arch/vmlinuz-linux"
         rm -f "${ESP_MOUNT}/arch/initramfs-linux.img"
-        
+
         mv "${ESP_MOUNT}/arch/vmlinuz-linux.old" "${ESP_MOUNT}/arch/vmlinuz-linux"
         mv "${ESP_MOUNT}/arch/initramfs-linux.img.old" "${ESP_MOUNT}/arch/initramfs-linux.img"
-        
+
         # Copy to persistent partition
         cp "${ESP_MOUNT}/arch/vmlinuz-linux" "/persistent/arch/" 2>/dev/null || true
         cp "${ESP_MOUNT}/arch/initramfs-linux.img" "/persistent/arch/" 2>/dev/null || true
-        
+
         log "Successfully rolled back kernel files"
     else
         log "ERROR: Backup kernel files not found in ESP. Kernel rollback failed."
         rollback_success=false
     fi
-    
+
     # Remove staging files
     rm -rf "$STAGING_ROOT"
-    
+
     if [[ "$rollback_success" == "true" ]]; then
         echo "rolledback" > "$TRANSACTION_DIR/$TRANSACTION_ID/status"
         log "Transaction $TRANSACTION_ID rolled back successfully"
@@ -139,7 +139,7 @@ rollback_transaction() {
         echo "rollback_failed" > "$TRANSACTION_DIR/$TRANSACTION_ID/status"
         log "CRITICAL: Transaction $TRANSACTION_ID rollback FAILED. System may be unstable."
     fi
-    
+
     # Force sync after rollback
     sync
     if [[ -x /usr/local/bin/enforced-sync ]]; then
@@ -200,13 +200,13 @@ update_system() {
     mkdir -p "${ESP_MOUNT}/arch"
 
     begin_transaction
-    
+
     log "Starting system update process"
-    
+
     # Create staging environment
     rm -rf "$STAGING_ROOT"
     mkdir -p "$STAGING_ROOT"
-    
+
     # Copy current system to staging environment
     log "Copying current system to staging environment"
     if [[ -d /squashfs ]]; then
@@ -216,7 +216,7 @@ update_system() {
         # Fallback: copy from actual root
         rsync -a --exclude={/dev,/proc,/sys,/run,/tmp,/var/cache,/var/tmp} / "$STAGING_ROOT/" 2>/dev/null || true
     fi
-    
+
     # Update in staging environment
     update_packages "$STAGING_ROOT" "$LOG_FILE"
 
@@ -225,11 +225,11 @@ update_system() {
     pacman --root "$STAGING_ROOT" -Scc --noconfirm >/dev/null 2>&1 || true
     rm -rf "$STAGING_ROOT/var/cache/pacman/pkg/*" 2>/dev/null || true
     log "Staging cache cleaned before creating squashfs"
-    
+
     # Create new squashfs image
     log "Creating new squashfs image"
     mkdir -p "$(dirname "$NEW_SQUASHFS")"
-    
+
     # Try EROFS first, fallback to Squashfs
     local use_erofs=false
     if command -v mkfs.erofs &>/dev/null && modprobe erofs &>/dev/null; then
@@ -242,7 +242,7 @@ update_system() {
             use_erofs=false
         }
     fi
-    
+
     if [[ "$use_erofs" == "false" ]]; then
         log "Using squashfs with ZSTD compression"
         if ! mksquashfs "$STAGING_ROOT" "$NEW_SQUASHFS" \
@@ -250,28 +250,28 @@ update_system() {
             error_exit "Failed to create new squashfs image"
         fi
     fi
-    
+
     # Verify integrity of new squashfs file
     if [[ "$use_erofs" == "false" ]]; then
         verify_squashfs_integrity "$NEW_SQUASHFS"
     fi
-    
+
     # Backup old file
     mkdir -p "$BACKUP_DIR"
     cp "$OLD_SQUASHFS" "$OLD_SQUASHFS_BACKUP"
-    
+
     # Verify backup integrity
     if [[ "$use_erofs" == "false" ]]; then
         verify_squashfs_integrity "$OLD_SQUASHFS_BACKUP"
     fi
-    
+
     # Replace files keeping old versions
     mv "$OLD_SQUASHFS" "${OLD_SQUASHFS}.old"
     mv "$NEW_SQUASHFS" "$OLD_SQUASHFS"
-    
+
     # Clean old files from ESP
     rm -f "${ESP_MOUNT}/arch/"*.old
-    
+
     # Backup current kernel and initramfs in ESP
     for file in vmlinuz-linux initramfs-linux.img; do
         if [[ -f "${ESP_MOUNT}/arch/$file" ]]; then
@@ -289,21 +289,21 @@ update_system() {
 
     cp "${STAGING_ROOT}/boot/vmlinuz-linux" "${ESP_MOUNT}/arch/"
     cp "${STAGING_ROOT}/boot/initramfs-linux.img" "${ESP_MOUNT}/arch/"
-    
+
     # Copy kernel and initramfs to persistent partition
     cp "${STAGING_ROOT}/boot/vmlinuz-linux" "/persistent/arch/"
     cp "${STAGING_ROOT}/boot/initramfs-linux.img" "/persistent/arch/"
-    
+
     # Force sync to ensure changes are written
     sync
     if [[ -x /usr/local/bin/enforced-sync ]]; then
         /usr/local/bin/enforced-sync
     fi
-    
+
     # Cleanup
     rm -rf "$STAGING_ROOT"
     sync
-    
+
     commit_transaction
     log "System update completed successfully. Reboot recommended."
 }
@@ -379,11 +379,11 @@ log() {
 rotate_snapshots() {
     local count=$(find "$SNAPSHOT_BASE" -name "atomic-snapshot-*.tar.gz" 2>/dev/null | wc -l)
     log "Current snapshot count: $count"
-    
+
     if [[ "$count" -gt "$MAX_SNAPSHOTS" ]]; then
         log "Rotating snapshots (keeping last $MAX_SNAPSHOTS)"
         local excess=$((count - MAX_SNAPSHOTS))
-        
+
         # Remove oldest snapshots
         find "$SNAPSHOT_BASE" -name "atomic-snapshot-*.tar.gz" | \
             sort | \
@@ -392,7 +392,7 @@ rotate_snapshots() {
                 log "Removing old snapshot: $(basename "$old_snapshot")"
                 rm -f "$old_snapshot"
             done
-        
+
         log "Rotation complete. Removed $excess old snapshot(s)"
     else
         log "No rotation needed (current count: $count, max: $MAX_SNAPSHOTS)"
@@ -401,41 +401,41 @@ rotate_snapshots() {
 
 create_atomic_snapshot() {
     log "Creating atomic snapshot: $SNAPSHOT_NAME"
-    
+
     # Stop critical services for snapshot consistency
     systemctl stop io-health-monitor.service 2>/dev/null || true
     systemctl stop power-failure-detector.service 2>/dev/null || true
-    
+
     # Force sync
     sync
     if [[ -x /usr/local/bin/enforced-sync ]]; then
         /usr/local/bin/enforced-sync
     fi
-    
+
     # Create snapshot directory
     mkdir -p "$SNAPSHOT_DIR"
-    
+
     # Copy critical system files
     cp -a /etc "$SNAPSHOT_DIR/"
     cp -a /var/lib/pacman "$SNAPSHOT_DIR/" 2>/dev/null || true
     cp -a /boot "$SNAPSHOT_DIR/" 2>/dev/null || true
-    
+
     # Package status
     pacman -Q > "$SNAPSHOT_DIR/installed-packages.list"
-    
+
     # Transaction information
     cp -a /var/lib/system-update/transactions "$SNAPSHOT_DIR/" 2>/dev/null || true
-    
+
     # Restart services
     systemctl start io-health-monitor.service 2>/dev/null || true
     systemctl start power-failure-detector.service 2>/dev/null || true
-    
+
     # Compress snapshot
     tar -czf "$SNAPSHOT_DIR.tar.gz" -C "$SNAPSHOT_BASE" "$SNAPSHOT_NAME"
     rm -rf "$SNAPSHOT_DIR"
-    
+
     log "Atomic snapshot created: $SNAPSHOT_DIR.tar.gz"
-    
+
     # Rotate snapshots after creating new one
     rotate_snapshots
 }
@@ -534,59 +534,59 @@ list_snapshots() {
 
 recover_from_snapshot() {
     local snapshot_file="$1"
-    
+
     if [[ -z "$snapshot_file" ]]; then
         echo "Error: Snapshot file not specified"
         echo "Usage: $0 recover <snapshot-file>"
         exit 1
     fi
-    
+
     if [[ ! -f "$snapshot_file" ]]; then
         echo "Error: Snapshot file not found: $snapshot_file"
         exit 1
     fi
-    
+
     log "Starting recovery from snapshot: $snapshot_file"
-    
+
     # Create temporary directory
     local temp_dir=$(mktemp -d)
     log "Extracting snapshot to: $temp_dir"
-    
+
     # Extract snapshot
     tar -xzf "$snapshot_file" -C "$temp_dir"
-    
+
     # Find snapshot directory
     local snapshot_dir=$(find "$temp_dir" -maxdepth 1 -type d -name "atomic-snapshot-*" | head -1)
-    
+
     if [[ -z "$snapshot_dir" ]]; then
         echo "Error: Could not find snapshot directory in archive"
         rm -rf "$temp_dir"
         exit 1
     fi
-    
+
     log "Recovering system files from snapshot..."
-    
+
     # Restore /etc
     if [[ -d "$snapshot_dir/etc" ]]; then
         cp -a "$snapshot_dir/etc/"* /etc/
         log "Restored /etc"
     fi
-    
+
     # Restore package database
     if [[ -d "$snapshot_dir/var/lib/pacman" ]]; then
         cp -a "$snapshot_dir/var/lib/pacman/"* /var/lib/pacman/ 2>/dev/null || true
         log "Restored package database"
     fi
-    
+
     # Restore boot files
     if [[ -d "$snapshot_dir/boot" ]]; then
         cp -a "$snapshot_dir/boot/"* /boot/ 2>/dev/null || true
         log "Restored boot files"
     fi
-    
+
     # Cleanup
     rm -rf "$temp_dir"
-    
+
     log "Recovery completed successfully"
     echo "Recovery completed. Please review changes and reboot if necessary."
 }

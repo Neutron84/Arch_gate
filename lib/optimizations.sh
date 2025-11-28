@@ -41,13 +41,13 @@ if command -v bcachefs &>/dev/null && [[ -b /dev/disk/by-label/ARCH_PERSIST ]]; 
         write_buffer_size=512M \
         journal_flush_delay=1000 \
         fsck_fix_errors=yes || true
-    
+
     # Enable advanced cache features
     bcachefs set-option /dev/disk/by-label/ARCH_PERSIST \
         reflink=1 \
         promote_target=4096 \
         writeback_percentage=20 || true
-    
+
     echo "Bcachefs optimizations applied"
 else
     echo "Bcachefs not available or ARCH_PERSIST partition not found"
@@ -121,7 +121,7 @@ analyze_application_usage() {
 prefetch_application() {
     local app_name="$1"
     local app_profile="$APPLICATION_PROFILES/${app_name}.profile"
-    
+
     if [[ -f "$app_profile" ]]; then
         echo "Prefetching $app_name using profile..." >> "$PREFETCH_LOG"
         while IFS= read -r file_pattern; do
@@ -145,20 +145,20 @@ prefetch_application() {
 # Main prefetch function
 run_smart_prefetch() {
     echo "$(date): Starting smart prefetch analysis" >> "$PREFETCH_LOG"
-    
+
     analyze_application_usage
-    
+
     while read -r process; do
         [[ -z "$process" ]] && continue
         local app_name=$(basename "$process")
         prefetch_application "$app_name" &
     done < "/tmp/top_processes"
-    
+
     while read -r service; do
         [[ -z "$service" ]] && continue
         prefetch_application "$service" &
     done < "/tmp/recent_services"
-    
+
     wait
     echo "$(date): Smart prefetch completed" >> "$PREFETCH_LOG"
 }
@@ -256,7 +256,7 @@ detect_hardware() {
     else
         GPU="generic"
     fi
-    
+
     # Detect CPU
     CPU_VENDOR=$(grep "vendor_id" /proc/cpuinfo | head -1 | awk '{print $3}')
     if [[ "$CPU_VENDOR" == "GenuineIntel" ]]; then
@@ -266,7 +266,7 @@ detect_hardware() {
     else
         CPU="generic"
     fi
-    
+
     # Detect RAM
     RAM_MB=$(grep MemTotal /proc/meminfo | awk '{print int($2/1024)}')
     if [[ $RAM_MB -lt 2048 ]]; then
@@ -281,15 +281,15 @@ detect_hardware() {
 apply_profile() {
     local profile="$1"
     local profile_file="$PROFILE_DIR/$profile.conf"
-    
+
     if [[ ! -f "$profile_file" ]]; then
         echo "Profile file not found: $profile_file"
         return 1
     fi
-    
+
     echo "Applying hardware profile: $profile"
     source "$profile_file"
-    
+
     # Save current profile
     mkdir -p "$(dirname "$CURRENT_PROFILE_FILE")"
     echo "$profile" > "$CURRENT_PROFILE_FILE"

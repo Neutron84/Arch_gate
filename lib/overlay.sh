@@ -45,7 +45,7 @@ run_hook() {
             echo "Failed to detect ARCH_PERSIST filesystem type!"
             return 1
         fi
-        
+
         if ! mount -t "$fs_type" -o ro /dev/disk/by-label/ARCH_PERSIST /os_root; then
             echo "Failed to mount ARCH_PERSIST partition!"
             return 1
@@ -108,22 +108,22 @@ run_hook() {
 
         # Cleanup
         umount /os_root
-        
+
         # Setup overlay filesystem
         mkdir -p /overlay_work
         mount -t tmpfs tmpfs /overlay_work
         mkdir -p /overlay_work/upper /overlay_work/work
         mount -t overlay overlay -o lowerdir=/squashfs,upperdir=/overlay_work/upper,workdir=/overlay_work/work /new_root
-        
+
         # Mount persistent partition
         mkdir -p /new_root/persistent
         mount -o rw,noatime /dev/disk/by-label/ARCH_PERSIST /new_root/persistent
-        
+
         # Link /home to persistent partition
         rm -rf /new_root/home
         ln -sf /persistent/home /new_root/home
         mkdir -p /new_root/persistent/home
-        
+
         # Create sync-skel.sh script
         mkdir -p /new_root/etc/profile.d
         cat > /new_root/etc/profile.d/sync-skel.sh <<'EOL'
@@ -206,8 +206,8 @@ create_squashfs_image() {
         print_msg "Creating EROFS image with LZ4HC compression..."
         if modprobe erofs &>/dev/null; then
             mkfs.erofs -zlz4hc,12 --uid-offset=0 --gid-offset=0 \
-                --mount-point=/ --exclude-path="/tmp/*" \
-                "$output_file" "$source_dir"
+            --mount-point=/ --exclude-path="/tmp/*" \
+            "$output_file" "$source_dir"
             
             if [[ $? -eq 0 ]]; then
                 print_success "EROFS image created: $output_file"
@@ -224,7 +224,7 @@ create_squashfs_image() {
     print_msg "Creating Squashfs image with ZSTD compression..."
     if command -v mksquashfs &>/dev/null; then
         mksquashfs "$source_dir" "$output_file" \
-            -comp zstd -Xcompression-level 15 -noappend -processors "$(nproc)"
+        -comp zstd -Xcompression-level 15 -noappend -processors "$(nproc)"
         
         if [[ $? -eq 0 ]]; then
             print_success "Squashfs image created: $output_file"
@@ -272,7 +272,7 @@ verify_rootfs_integrity() {
                 print_warn "unsquashfs not found, skipping integrity check"
                 return 0
             fi
-            ;;
+        ;;
         "EROFS")
             # EROFS verification is more complex, basic check
             if [[ -s "$rootfs_file" ]]; then
@@ -282,11 +282,11 @@ verify_rootfs_integrity() {
                 print_failed "EROFS file is empty or invalid"
                 return 1
             fi
-            ;;
+        ;;
         *)
             print_warn "Unknown filesystem type, skipping integrity check"
             return 0
-            ;;
+        ;;
     esac
 }
 
@@ -304,7 +304,7 @@ setup_home_symlink() {
     # Remove existing /home if it's not a symlink
     if [[ -L "$chroot_dir/home" ]]; then
         rm -f "$chroot_dir/home"
-    elif [[ -d "$chroot_dir/home" ]]; then
+        elif [[ -d "$chroot_dir/home" ]]; then
         # Backup existing /home if it exists
         if [[ -d "$chroot_dir/home" ]]; then
             mv "$chroot_dir/home" "$chroot_dir/home.backup"
