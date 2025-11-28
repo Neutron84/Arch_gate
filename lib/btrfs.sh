@@ -2,7 +2,7 @@
 # =============================================================================
 # BTRFS SUBVOLUME MANAGEMENT MODULE
 # =============================================================================
- Include guard
+#Include guard
 if [[ -n "${_ARCHGATE_BTRFS_SH_LOADED:-}" ]]; then
   return 0
 fi
